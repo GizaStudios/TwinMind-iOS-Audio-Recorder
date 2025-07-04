@@ -1,4 +1,6 @@
+#----------------------------------------------------
 # Logs
+#----------------------------------------------------
 logs
 *.log
 npm-debug.log*
@@ -6,13 +8,19 @@ yarn-debug.log*
 yarn-error.log*
 dev-debug.log
 
+#----------------------------------------------------
 # Dependency directories
+#----------------------------------------------------
 node_modules/
 
+#----------------------------------------------------
 # Environment variables
+#----------------------------------------------------
 .env
 
+#----------------------------------------------------
 # Editor directories and files
+#----------------------------------------------------
 .idea
 .vscode
 *.suo
@@ -21,7 +29,79 @@ node_modules/
 *.sln
 *.sw?
 
-# OS specific
+#----------------------------------------------------
+# OS-specific files
+#----------------------------------------------------
 .DS_Store
-
 .cursor
+
+#====================================================
+# Xcode / iOS / macOS
+#====================================================
+
+# System files
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Build products & indexes
+build/
+DerivedData/
+*.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+.ideworkspace
+
+# Xcode user data
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+.swiftpm/xcode/package*.xcodeproj
+.swiftpm/cache
+.swiftpm/diagnostics
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Carthage
+Carthage/Build/
+Carthage/Checkouts/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+
+# SwiftLint & other logs
+.swiftlint.tmp
+
+# XCFrameworks generated locally
+*.xcframework
+
+# Playgrounds
+Timeline.xctimeline
+playground.xcworkspace
+UserInterfaceState.xcuserstate
+
+# Signing & provisioning
+*.mobileprovision
+
+# Bundle artifacts
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Crashlytics / Firebase
+fabric.properties
+crashlytics-build.properties
