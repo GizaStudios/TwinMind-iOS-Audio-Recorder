@@ -27,7 +27,9 @@ final class HomeViewModel: ObservableObject {
         $searchText
             .combineLatest($filter)
             .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in self?.resetAndLoad() }
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.resetAndLoad() }
+            }
             .store(in: &cancellables)
         // wait for context set before loading
     }
@@ -62,28 +64,59 @@ final class HomeViewModel: ObservableObject {
         guard canLoadMore else { return }
         do {
             var desc = FetchDescriptor<RecordingSession>()
-            desc.fetchLimit  = pageSize
-            desc.fetchOffset = offset
-            desc.sortBy = [SortDescriptor(\RecordingSession.createdAt, order: .reverse)]
-            let page = try context.fetch(desc)
-            // In-memory search filter (lowercased() not supported in predicate)
-            let searched: [RecordingSession]
-            if searchText.isEmpty {
-                searched = page
+            
+            // When searching, fetch all results without pagination for proper search functionality
+            if !searchText.isEmpty {
+                desc.predicate = #Predicate<RecordingSession> { session in
+                    session.title.contains(searchText) ||
+                    session.segments.contains { seg in
+                        seg.transcription?.text.contains(searchText) == true
+                    }
+                }
+                // No pagination for search - get all results
+                desc.fetchLimit = 0 // 0 means no limit
+                desc.fetchOffset = 0
             } else {
+                // Normal pagination when not searching
+                desc.fetchLimit = pageSize
+                desc.fetchOffset = offset
+            }
+            
+            desc.sortBy = [SortDescriptor(\RecordingSession.createdAt, order: .reverse)]
+            
+            let page = try context.fetch(desc)
+            
+            // Apply case-insensitive filter if needed (only for search results)
+            var filtered: [RecordingSession]
+            if !searchText.isEmpty {
                 let q = searchText.lowercased()
-                searched = page.filter { $0.title.lowercased().contains(q) }
+                filtered = page.filter { session in
+                    session.title.lowercased().contains(q) ||
+                    session.segments.contains { seg in
+                        seg.transcription?.text.lowercased().contains(q) == true
+                    }
+                }
+            } else {
+                filtered = page
             }
-            // apply unfinished filter in-memory (predicate with relationship heavy)
-            let filtered: [RecordingSession]
+            
+            // Apply unfinished filter
             switch filter {
-            case .all: filtered = searched
+            case .all: break // no additional filtering needed
             case .unfinished:
-                filtered = searched.filter { $0.segments.contains { $0.status != .completed } }
+                filtered = filtered.filter { $0.segments.contains { $0.status != .completed } }
             }
+            
             sessions.append(contentsOf: filtered)
-            canLoadMore = page.count == pageSize
-            offset += page.count
+            
+            // Update pagination state
+            if !searchText.isEmpty {
+                // When searching, we've loaded all results
+                canLoadMore = false
+            } else {
+                canLoadMore = page.count == pageSize
+                offset += page.count
+            }
         } catch {
             print("[HomeVM] fetch error: \(error)")
         }

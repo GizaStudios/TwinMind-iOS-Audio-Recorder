@@ -49,23 +49,24 @@
 [✓] Securely store API tokens using the Keychain
 [✓] Follow iOS privacy best practices for microphone access
 
-[ ] Publish the complete Xcode project to a GitHub repository
-[ ] Write a clear README with setup instructions
-[ ] Maintain a proper git history that reflects the development process
-[ ] Add code comments explaining complex audio and concurrency logic
+[-] Publish the complete Xcode project to a GitHub repository
+[X] Write a clear README with setup instructions
+[-] Maintain a proper git history that reflects the development process
+[✓] Add code comments explaining complex audio and concurrency logic
 
-[ ] Produce an architecture document detailing high-level design decisions
-[ ] Document the audio system design, including route-change and interruption handling
-[ ] Document the SwiftData schema and performance optimizations
-[ ] Compile a list of known issues and areas for future improvement
+[X] Produce an architecture document detailing high-level design decisions
+[X] Document the audio system design, including route-change and interruption handling
+[X] Document the SwiftData schema and performance optimizations
+[X] Compile a list of known issues and areas for future improvement
 
-[ ] Write unit tests for core business logic and data models
-[ ] Write integration tests covering the audio system and API interaction
-[ ] Write tests for edge cases, error scenarios, and recovery paths
-[ ] Perform basic performance tests with large datasets
+[✓] Write unit tests for core business logic and data models
+[✓] Write integration tests covering the audio system and API interaction
+[✓] Write tests for edge cases, error scenarios, and recovery paths
+[-] Perform basic performance tests with large datasets
 
-[ ] Implement real-time audio waveform or level-meter visualization (Bonus)
-[ ] Add export functionality to share sessions in various formats (Bonus)
-[ ] Implement full-text search across transcriptions (Bonus)
-[ ] Add custom audio processing such as noise reduction or enhancement (Bonus)
-[ ] Develop an iOS widget for quick recording access (Bonus) 
+[✓] Implement real-time audio waveform or level-meter visualization (Bonus)
+[✓] Add export functionality to share sessions in various formats (Bonus)
+[X] Implement full-text search across transcriptions (Bonus)
+    - Only works with beginning of the transcription
+[X] Add custom audio processing such as noise reduction or enhancement (Bonus)
+[X] Develop an iOS widget for quick recording access (Bonus) 
