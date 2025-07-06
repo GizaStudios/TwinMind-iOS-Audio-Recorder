@@ -1,44 +1,71 @@
-[-] Implement automatic audio route-change recovery (pause and resume with correct device)  
-[-] Enable true background recording with Background Modes entitlement and background task handling  
-[-] Wire quality settings from SettingsSheet (sample-rate, bit-depth, format) into AVAudioEngine configuration  
-[ ] Add real-time audio level / waveform visualisation bound to `audioLevel`  
-[ ] Expose Pause / Resume control in the UI connected to `pauseRecording` and `resumeRecording`  
-[ ] Add robust error handling for microphone permission denial, disk-full, AVAudioEngine failure, and microphone revocation  
-[ ] Recover interrupted recording session on next app launch  
-[ ] Implement cleanup strategy for large / orphaned CAF and temporary M4A files  
-[ ] Encrypt on-device audio files  
-[ ] Implement exponential back-off and retry logic for transcription failures and update `retryCount`  
-[ ] Queue failed segments for offline retry and automatically resend when network returns  
-[ ] Add fallback to local speech-to-text after 5 consecutive failures  
-[ ] Add TLS pinning or request signing for secure transcription uploads  
-[ ] Move API keys / JWT out of source code and store securely in Keychain  
-[ ] Add indexes and sort descriptors in SwiftData for large datasets  
-[ ] Implement batch fetch and pagination APIs for memory-efficient scrolling  
-[ ] Enable encryption of the SwiftData persistent store  
-[ ] Create migration / versioning strategy and data-pruning policy  
-[ ] Implement search and filter on the sessions list  
-[ ] Implement pagination or virtualised list for very large datasets  
-[ ] Add live transcription progress indicators per segment and per session  
-[ ] Show loading, success, and error banners for network and transcription states  
-[ ] Add full accessibility support (VoiceOver labels, dynamic type, contrast)  
-[ ] Show offline / online status indicator in the UI  
-[ ] Add pull-to-refresh to Home and Session views  
-[ ] Connect settings toggles (background recording, show levels) to actual behaviour  
-[ ] Implement “Export Audio” functionality  
-[ ] Implement “Export Transcript” functionality  
-[ ] Implement “Share” functionality  
-[ ] Replace placeholder waveforms with real-time waveform component  
-[ ] Implement disk-space pre-check and graceful stop with user alert  
-[ ] Implement comprehensive network-failure handling with retries / offline queue  
-[ ] Add data-corruption detection and repair for audio files and SwiftData store  
-[ ] Cleanly stop recording when low-memory or termination signal is received  
-[ ] Optimise memory usage during long recordings (stream chunks, avoid large buffers)  
-[ ] Lower sample-rate or processing load in background to save battery  
-[ ] Implement background upload of segments via `URLSession` background tasks  
-[ ] Implement old-session cleanup or archive routine to free storage  
-[ ] Update Info.plist privacy strings and document data usage  
-[ ] Create unit tests for RecordingViewModel (segmentation, retry logic, level calculation)  
-[ ] Create integration tests for audio interruptions and recovery paths  
-[ ] Create network stubs and tests for TranscriptionService success / failure cases  
-[ ] Create UI tests for recording flow, background resume, and error banners  
-[ ] Add performance tests for scrolling through 10 000+ segments
+[✓] Configure audio session for recording with appropriate categories and options
+[✓] Handle audio route changes (headphones plugged/unplugged, Bluetooth connections) and interruptions with automatic resumption
+[✓] Support background recording continuation when app enters the background
+[✓] Provide configurable recording quality settings (sample rate, bit depth, format)
+[✓] Implement optional real-time audio level visualization during recording
+[✓] Use AVAudioEngine as the core recording engine
+[✓] Observe and handle audio session notifications (route changes, interruptions, etc.)
+[✓] Gracefully handle recording failures, storage limitations, and permission denials
+
+[✓] Split recordings into configurable time segments (default: 30 seconds)
+[✓] Send audio segments to a backend transcription API (e.g., OpenAI Whisper)
+[✓] Implement exponential backoff retry logic for failed transcription requests
+[✓] Support concurrent processing of multiple transcription requests
+[✓] Ensure secure (encrypted) transmission of audio data to the backend
+[✓] Queue segments for transcription when the network is unavailable (offline queuing)
+[✓] Fallback to local speech-to-text models after 5 consecutive transcription failures
+
+[✓] Design SwiftData models for recording sessions and transcription segments with processing metadata
+[✓] Establish relationships between sessions, segments, and transcriptions in SwiftData
+[-] Optimize the SwiftData stack for 1 000+ sessions and 10 000+ segments
+
+[✓] Implement recording controls (start / stop / pause) with clear visual feedback
+[✓] Build a session list view grouped by date with search and filter capabilities
+[✓] Build a session detail view showing segments with transcription status and text
+[✓] Provide live UI updates during recording and transcription processes
+[✓] Ensure smooth scrolling performance with large datasets via list virtualization
+[✓] Implement full VoiceOver support and add accessibility labels throughout the UI
+[✓] Gracefully handle loading states in the UI
+[✓] Add pull-to-refresh and pagination for long lists
+[✓] Display transcription progress indicators
+[✓] Show offline / online status indicators in the UI
+
+[✓] Handle audio permission denied or revoked scenarios
+[✓] Detect and respond to insufficient storage space
+[✓] Manage network failures during transcription gracefully
+[✓] Recover from app termination during an active recording session
+[✓] Handle audio route changes that occur mid-recording
+[✓] Address background processing limitations while recording or transcribing
+[✓] Handle errors returned by the transcription service
+[✓] Detect and recover from data corruption scenarios
+
+---------------------------------------------------------------------
+
+[✓] Optimize memory usage when working with large audio files
+[-] Minimize battery drain during extended recording sessions
+[✓] Implement audio file cleanup strategies to manage storage
+
+[✓] Encrypt audio files at rest
+[✓] Securely store API tokens using the Keychain
+[✓] Follow iOS privacy best practices for microphone access
+
+[ ] Publish the complete Xcode project to a GitHub repository
+[ ] Write a clear README with setup instructions
+[ ] Maintain a proper git history that reflects the development process
+[ ] Add code comments explaining complex audio and concurrency logic
+
+[ ] Produce an architecture document detailing high-level design decisions
+[ ] Document the audio system design, including route-change and interruption handling
+[ ] Document the SwiftData schema and performance optimizations
+[ ] Compile a list of known issues and areas for future improvement
+
+[ ] Write unit tests for core business logic and data models
+[ ] Write integration tests covering the audio system and API interaction
+[ ] Write tests for edge cases, error scenarios, and recovery paths
+[ ] Perform basic performance tests with large datasets
+
+[ ] Implement real-time audio waveform or level-meter visualization (Bonus)
+[ ] Add export functionality to share sessions in various formats (Bonus)
+[ ] Implement full-text search across transcriptions (Bonus)
+[ ] Add custom audio processing such as noise reduction or enhancement (Bonus)
+[ ] Develop an iOS widget for quick recording access (Bonus) 

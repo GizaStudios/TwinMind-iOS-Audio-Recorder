@@ -29,9 +29,22 @@
 		039648212E14DE0000DC509B /* TwinMindUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TwinMindUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		03AE740B2E175F0A0037287E /* Exceptions for "TwinMind" folder in "TwinMind" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 039648072E14DDFD00DC509B /* TwinMind */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0396480A2E14DDFD00DC509B /* TwinMind */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				03AE740B2E175F0A0037287E /* Exceptions for "TwinMind" folder in "TwinMind" target */,
+			);
 			path = TwinMind;
 			sourceTree = "<group>";
 		};
@@ -400,7 +413,9 @@
 				DEVELOPMENT_TEAM = 8M2R6Y78JV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TwinMind/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "TwinMind records audio so it can transcribe and summarize your conversation.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "TwinMind converts your recordings to text on this device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -429,7 +444,9 @@
 				DEVELOPMENT_TEAM = 8M2R6Y78JV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TwinMind/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "TwinMind records audio so it can transcribe and summarize your conversation.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "TwinMind converts your recordings to text on this device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

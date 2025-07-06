@@ -6,81 +6,223 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct SessionDetailView: View {
     let session: RecordingSession
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var selectedSegment: AudioSegment?
+    @State private var isExporting = false
+    @State private var showingDeleteAlert = false
+    @State private var exportError: ExportError?
+    @State private var showingExportSuccess = false
+    @State private var exportedFileURL: URL?
+    @State private var transcriptionManager: TranscriptionManager?
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Session Header
-                SessionHeaderView(session: session)
-                
-                // Quick Stats
-                SessionStatsView(session: session)
-                
-                // Segments List
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Text("Segments")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        
-                        Spacer()
-                        
-                        Text("\(session.segments.count) total")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    if session.segments.isEmpty {
-                        EmptySegmentsView()
-                    } else {
-                        LazyVStack(spacing: 12) {
-                            ForEach(session.segments, id: \.id) { segment in
-                                SegmentRowView(
-                                    segment: segment,
-                                    isSelected: selectedSegment?.id == segment.id,
-                                    onTap: {
-                                        selectedSegment = selectedSegment?.id == segment.id ? nil : segment
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal)
+                headerSection
+                statsSection
+                segmentsSection
             }
         }
         .navigationTitle(session.title)
         .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button(action: {}) {
-                        Label("Export Audio", systemImage: "square.and.arrow.up")
+        .toolbar { toolbarContent }
+        .refreshable { /* triggers SwiftUI pull; no explicit reload needed */ }
+        .alert("Export Successful", isPresented: $showingExportSuccess) {
+            Button("OK") { }
+            if let url = exportedFileURL {
+                Button("Open") {
+                    openFile(url)
+                }
+            }
+        } message: {
+            Text("File has been exported successfully.")
+        }
+        .alert("Export Error", isPresented: .constant(exportError != nil)) {
+            Button("OK") { exportError = nil }
+        } message: {
+            Text(exportError?.errorDescription ?? "Unknown error occurred.")
+        }
+        .alert("Delete Recording", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteSession()
+            }
+        } message: {
+            Text("Are you sure you want to delete this recording? This action cannot be undone.")
+        }
+        .onAppear {
+            if transcriptionManager == nil {
+                transcriptionManager = TranscriptionManager(modelContext: modelContext)
+            }
+        }
+    }
+
+    // MARK: - Computed Properties
+    
+    private var hasTranscription: Bool {
+        session.segments.contains { $0.transcription != nil }
+    }
+    
+    // MARK: - Export and Share Methods
+    
+    private func exportAudio() {
+        isExporting = true
+        ExportManager.exportAudio(for: session) { result in
+            isExporting = false
+            switch result {
+            case .success(let url):
+                exportedFileURL = url
+                showingExportSuccess = true
+            case .failure(let error):
+                exportError = error
+            }
+        }
+    }
+    
+    private func exportTranscript() {
+        isExporting = true
+        ExportManager.exportTranscript(for: session) { result in
+            isExporting = false
+            switch result {
+            case .success(let url):
+                exportedFileURL = url
+                showingExportSuccess = true
+            case .failure(let error):
+                exportError = error
+            }
+        }
+    }
+    
+    private func shareSession() {
+        isExporting = true
+        
+        // Find the source view for the popover (for iPad)
+        let sourceView: UIView? = nil // Will use fallback positioning in ExportManager
+        
+        ExportManager.shareSession(session, from: sourceView) { success in
+            isExporting = false
+            if !success {
+                exportError = .shareNotAvailable
+            }
+        }
+    }
+    
+    private func deleteSession() {
+        // Delete associated files
+        deleteSessionFiles()
+        
+        // Delete from SwiftData
+        modelContext.delete(session)
+        try? modelContext.save()
+    }
+    
+    private func deleteSessionFiles() {
+        // Delete main audio file
+        let audioURL = URL(fileURLWithPath: session.audioFilePath)
+        try? FileManager.default.removeItem(at: audioURL)
+        
+        // Delete segment files
+        for segment in session.segments {
+            let segmentURL = URL(fileURLWithPath: segment.segmentFilePath)
+            try? FileManager.default.removeItem(at: segmentURL)
+        }
+    }
+    
+    private func openFile(_ url: URL) {
+        if UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+        }
+    }
+    
+    private func shareSegment(_ segment: AudioSegment) {
+        ExportManager.shareSegment(segment) { success in
+            if !success {
+                exportError = .shareNotAvailable
+            }
+        }
+    }
+    
+    private func retryTranscription(for segment: AudioSegment) {
+        // Reset the segment status and retry count to trigger a new transcription attempt
+        segment.status = .notStarted
+        segment.lastError = nil
+        try? modelContext.save()
+        
+        // Enqueue the segment for transcription
+        transcriptionManager?.enqueue(segment: segment)
+    }
+
+    // MARK: Sections extracted to help compiler
+    private var headerSection: some View { SessionHeaderView(session: session) }
+    private var statsSection: some View { SessionStatsView(session: session) }
+    private var segmentsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Segments")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text("\(session.segments.count) total")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if session.segments.isEmpty {
+                EmptySegmentsView()
+            } else {
+                LazyVStack(spacing: 12) {
+                    ForEach(session.segments, id: \.id) { segment in
+                        SegmentRowView(
+                            segment: segment,
+                            isSelected: selectedSegment?.id == segment.id,
+                            onTap: {
+                                selectedSegment = selectedSegment?.id == segment.id ? nil : segment
+                            },
+                            onRetry: retryTranscription,
+                            onShare: shareSegment
+                        )
                     }
-                    
-                    Button(action: {}) {
-                        Label("Export Transcript", systemImage: "doc.text")
-                    }
-                    
-                    Button(action: {}) {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                    }
-                    
-                    Divider()
-                    
-                    Button(action: {}) {
-                        Label("Edit Title", systemImage: "pencil")
-                    }
-                    
-                    Button(role: .destructive, action: {}) {
-                        Label("Delete", systemImage: "trash")
-                    }
-                } label: {
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Menu {
+                Button(action: exportAudio) { 
+                    Label("Export Audio", systemImage: "square.and.arrow.up")
+                }
+                .disabled(isExporting)
+                
+                Button(action: exportTranscript) { 
+                    Label("Export Transcript", systemImage: "doc.text")
+                }
+                .disabled(isExporting || !hasTranscription)
+                
+                Button(action: shareSession) { 
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .disabled(isExporting)
+                
+                Divider()
+                
+                Button(role: .destructive, action: { showingDeleteAlert = true }) { 
+                    Label("Delete", systemImage: "trash") 
+                }
+            } label: { 
+                if isExporting {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .primary))
+                        .scaleEffect(0.8)
+                } else {
                     Image(systemName: "ellipsis.circle")
                 }
             }
@@ -91,7 +233,10 @@ struct SessionDetailView: View {
 // MARK: - Supporting Views
 
 struct SessionHeaderView: View {
+    @Environment(\.modelContext) private var modelContext
     let session: RecordingSession
+    @State private var isEditing = false
+    @State private var draftTitle: String = ""
     
     private var statusText: String {
         if session.segments.isEmpty {
@@ -111,25 +256,35 @@ struct SessionHeaderView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(session.title)
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    
-                    HStack(spacing: 16) {
-                        Label(
-                            session.createdAt.formatted(date: .complete, time: .shortened),
-                            systemImage: "calendar"
-                        )
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        
-                        Label(
-                            formatDuration(session.duration),
-                            systemImage: "clock"
-                        )
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                    if isEditing {
+                        HStack {
+                            TextField("Title", text: $draftTitle)
+                                .font(.title2.bold())
+                            Button(action: saveTitle) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.green)
+                            }
+                        }
+                    } else {
+                        Text(session.title)
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .onTapGesture {
+                                draftTitle = session.title
+                                withAnimation { isEditing = true }
+                            }
                     }
+                    
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                        Text(session.createdAt.formatted(date: .complete, time: .shortened))
+                    }.font(.subheadline).foregroundColor(.secondary)
+                    
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                        Text(formatDuration(session.duration))
+                    }.font(.subheadline).foregroundColor(.secondary)
                 }
                 
                 Spacer()
@@ -144,6 +299,12 @@ struct SessionHeaderView: View {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
         return String(format: "%dm %ds", minutes, seconds)
+    }
+    
+    private func saveTitle() {
+        session.title = draftTitle.isEmpty ? session.title : draftTitle
+        try? modelContext.save()
+        withAnimation { isEditing = false }
     }
 }
 
@@ -169,7 +330,7 @@ struct SessionStatsView: View {
                 
                 StatCard(
                     title: "Progress",
-                    value: "\(Int(transcriptionProgress * 100))%",
+                    value: "\(Int(session.progress * 100))%",
                     icon: "chart.pie",
                     color: .orange
                 )
@@ -180,11 +341,6 @@ struct SessionStatsView: View {
     
     private var completedSegments: Int {
         session.segments.filter { $0.status == .completed }.count
-    }
-    
-    private var transcriptionProgress: Double {
-        guard !session.segments.isEmpty else { return 0 }
-        return Double(completedSegments) / Double(session.segments.count)
     }
 }
 
@@ -221,6 +377,8 @@ struct SegmentRowView: View {
     let segment: AudioSegment
     let isSelected: Bool
     let onTap: () -> Void
+    let onRetry: (AudioSegment) -> Void
+    let onShare: (AudioSegment) -> Void
     
     var body: some View {
         VStack(spacing: 0) {
@@ -239,6 +397,10 @@ struct SegmentRowView: View {
                             .foregroundColor(.secondary)
                     }
                     .frame(width: 60, alignment: .leading)
+                    
+                    // Progress indicator
+                    ProgressView(value: segment.progress)
+                        .frame(width: 40)
                     
                     // Waveform placeholder
                     RoundedRectangle(cornerRadius: 4)
@@ -288,7 +450,7 @@ struct SegmentRowView: View {
             
             // Expanded transcription view
             if isSelected {
-                TranscriptionDetailView(segment: segment)
+                TranscriptionDetailView(segment: segment, onRetryTranscription: onRetry, onShareSegment: onShare)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                     .animation(.easeInOut(duration: 0.3), value: isSelected)
             }
@@ -363,6 +525,8 @@ struct TranscriptionStatusBadge: View {
 
 struct TranscriptionDetailView: View {
     let segment: AudioSegment
+    let onRetryTranscription: (AudioSegment) -> Void
+    let onShareSegment: (AudioSegment) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -413,7 +577,7 @@ struct TranscriptionDetailView: View {
                 .buttonStyle(.bordered)
                 
                 if segment.status == .failed {
-                    Button(action: {}) {
+                    Button(action: { onRetryTranscription(segment) }) {
                         Label("Retry", systemImage: "arrow.clockwise")
                             .font(.caption)
                     }
@@ -422,7 +586,7 @@ struct TranscriptionDetailView: View {
                 
                 Spacer()
                 
-                Button(action: {}) {
+                Button(action: { onShareSegment(segment) }) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.caption)
                 }

@@ -82,12 +82,17 @@ class AudioSegment {
     var startTime: TimeInterval
     var endTime: TimeInterval
 
-    // Path to the on‑disk audio slice
+    // Creation timestamp for indexing & analytics
+    var createdAt: Date?
+
+    // Path to the on-disk audio slice
     var segmentFilePath: String
 
     // Transcription pipeline state
     var status: TranscriptionStatus
     var retryCount: Int
+    /// Real-time transcription progress 0.0 – 1.0
+    var progress: Double?
     var lastError: String?
 
     // Relationships
@@ -99,7 +104,9 @@ class AudioSegment {
          segmentFilePath: String,
          status: TranscriptionStatus = .notStarted,
          retryCount: Int = 0,
-         lastError: String? = nil) {
+         lastError: String? = nil,
+         createdAt: Date? = .now,
+         progress: Double? = 0.0) {
         self.id = UUID()
         self.startTime = startTime
         self.endTime = endTime
@@ -107,6 +114,8 @@ class AudioSegment {
         self.status = status
         self.retryCount = retryCount
         self.lastError = lastError
+        self.createdAt = createdAt
+        self.progress = progress
     }
 }
 
@@ -137,5 +146,15 @@ class Transcription {
         self.language = language
         self.createdAt = createdAt
         self.source = source
+    }
+}
+
+// MARK: - Computed helpers
+extension RecordingSession {
+    /// Aggregate progress of all segments (0.0 – 1.0)
+    var progress: Double {
+        guard !segments.isEmpty else { return 0 }
+        let total = segments.reduce(0.0) { $0 + ($1.progress ?? 0.0) }
+        return total / Double(segments.count)
     }
 } 

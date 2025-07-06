@@ -144,15 +144,12 @@ struct RecordingView: View {
                         
                         Spacer()
                         
-                        // Waveform visualization
-                        HStack(spacing: 2) {
-                            ForEach(0..<15, id: \.self) { _ in
-                                RoundedRectangle(cornerRadius: 1)
-                                    .fill(Color.secondary.opacity(0.3))
-                                    .frame(width: 3, height: CGFloat.random(in: 8...32))
-                            }
+                        // Real-time waveform visualisation
+                        if AppSettings.shared.showLevels {
+                            WaveformView(samples: viewModel.waveformSamples)
+                                .frame(height: 60)
+                                .padding(.top, 20)
                         }
-                        .padding(.top, 20)
                         
                         // Transcription Status
                         VStack(spacing: 12) {
@@ -187,10 +184,13 @@ struct RecordingView: View {
             
             // Bottom Control Bar
             HStack(spacing: 12) {
-                Button(action: {}) {
+                // Pause / Resume toggle
+                Button(action: {
+                    if viewModel.isPaused { viewModel.resumeRecording() } else { viewModel.pauseRecording() }
+                }) {
                     HStack {
-                        Image(systemName: "bubble.left.and.bubble.right")
-                        Text("Chat with Transcript")
+                        Image(systemName: viewModel.isPaused ? "play.circle" : "pause.circle")
+                        Text(viewModel.isPaused ? "Resume" : "Pause")
                     }
                     .foregroundColor(.primary)
                     .padding(.horizontal, 20)
@@ -218,6 +218,9 @@ struct RecordingView: View {
         .navigationBarHidden(true)
         .onAppear {
             viewModel.startRecording()
+        }
+        .alert(item: $viewModel.recordingError) { err in
+            Alert(title: Text("Recording Error"), message: Text(err.localizedDescription), dismissButton: .default(Text("OK")))
         }
     }
     

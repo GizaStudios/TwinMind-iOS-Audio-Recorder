@@ -12,6 +12,8 @@ struct SettingsSheet: View {
     @AppStorage("selectedQuality") private var selectedQualityRaw: String = RecordingQuality.medium.rawValue
     @AppStorage("enableBackgroundRecording") private var enableBackgroundRecording: Bool = true
     @AppStorage("showLevels") private var showLevels: Bool = true
+    @AppStorage("simulateOffline") private var simulateOffline: Bool = false
+    @AppStorage("segmentLength") private var segmentLength: Double = 30.0
 
     @Binding var isPresented: Bool
 
@@ -35,9 +37,26 @@ struct SettingsSheet: View {
                         .foregroundColor(.secondary)
                 }
                 
+                Section(header: Text("Recording Settings")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Segment Length")
+                            Spacer()
+                            Text("\(Int(segmentLength)) seconds")
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $segmentLength, in: 10...120, step: 5)
+                            .accentColor(.blue)
+                    }
+                    Text("Audio will be split into segments of this length for transcription.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
                 Section(header: Text("Options")) {
                     Toggle("Background Recording", isOn: $enableBackgroundRecording)
                     Toggle("Show Audio Levels", isOn: $showLevels)
+                    Toggle("Simulate Offline Mode", isOn: $simulateOffline)
                 }
                 
                 Section(footer: Text("These preferences are stored locally; backend configuration will follow.")) {

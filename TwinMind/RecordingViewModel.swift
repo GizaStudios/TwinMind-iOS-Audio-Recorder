@@ -14,6 +14,27 @@ import AVFoundation
 import UIKit
 #endif
 
+// MARK: - Error types reported to the UI
+enum RecordingError: LocalizedError, Identifiable {
+    case micPermissionDenied
+    case diskFull
+    case engineFailure(String)
+    case microphoneRevoked
+    case fileWrite(String)
+
+    var id: String { localizedDescription }
+
+    var errorDescription: String? {
+        switch self {
+        case .micPermissionDenied:      return "Microphone permission was denied. Please enable it in Settings."
+        case .diskFull:                 return "Recording stopped – your device is out of free space."
+        case .engineFailure(let msg):   return "Audio engine error: \(msg)"
+        case .microphoneRevoked:        return "Microphone access was revoked while recording."
+        case .fileWrite(let msg):       return "Could not write audio data: \(msg)"
+        }
+    }
+}
+
 @MainActor
 class RecordingViewModel: ObservableObject {
     @Published var isRecording = false
@@ -22,18 +43,33 @@ class RecordingViewModel: ObservableObject {
     @Published var audioLevel: Float = 0.0
     @Published var isOnline = true
     @Published var currentSession: RecordingSession?
+    @Published var recordingError: RecordingError?
+    @Published var waveformSamples: [Float] = []
+    /// Maximum number of samples kept in memory for the on-screen waveform.
+    private let maxWaveformSamples = 120
     
-    var modelContext: ModelContext?
+    var modelContext: ModelContext? {
+        didSet {
+            if let modelContext = modelContext, transcriptionManager == nil {
+                transcriptionManager = TranscriptionManager(modelContext: modelContext)
+            }
+        }
+    }
     
+    private var transcriptionManager: TranscriptionManager?
     private var durationTimer: Timer?
     
     // MARK: Audio properties
     private let engine = AVAudioEngine()
-    private var inputFormat: AVAudioFormat?
+    internal(set) var inputFormat: AVAudioFormat?
     private var currentFile: AVAudioFile?
-    private let segmentLength: TimeInterval = 30.0
     private var segmentTimer: Timer?
     private var masterAudioFile: AVAudioFile?
+    
+    // Computed property that reads from AppSettings
+    private var segmentLength: TimeInterval {
+        AppSettings.shared.segmentLength
+    }
     
     // Background task identifier (iOS)
 #if canImport(UIKit)
@@ -49,8 +85,10 @@ class RecordingViewModel: ObservableObject {
         return dir
     }
     
-    // Keep track of active transcription tasks by segment id
-    private var transcriptionTasks: [UUID: Task<Void, Never>] = [:]
+    // MARK: Device storage safety
+    /// Minimum free space (bytes) required to start or continue a recording (~50 MB).
+    private let minimumRequiredFreeSpace: Int64 = 50 * 1024 * 1024
+    private var diskMonitorTimer: Timer?
     
     // MARK: - Recording Flow
     func startRecording() {
@@ -58,15 +96,29 @@ class RecordingViewModel: ObservableObject {
         #if os(iOS)
         if #available(iOS 17.0, *) {
             AVAudioApplication.requestRecordPermission { granted in
-                guard granted else { return }
+                guard granted else {
+                    Task { @MainActor in self.recordingError = .micPermissionDenied }
+                    return
+                }
                 Task { @MainActor in
+                    guard self.hasSufficientDiskSpace() else {
+                        self.recordingError = .diskFull
+                        return
+                    }
                     self.configureAndStartSession()
                 }
             }
         } else {
             AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                guard granted else { return }
+                guard granted else {
+                    Task { @MainActor in self.recordingError = .micPermissionDenied }
+                    return
+                }
                 Task { @MainActor in
+                    guard self.hasSufficientDiskSpace() else {
+                        self.recordingError = .diskFull
+                        return
+                    }
                     self.configureAndStartSession()
                 }
             }
@@ -74,7 +126,12 @@ class RecordingViewModel: ObservableObject {
         #endif
     }
     
-    private func configureAndStartSession() {
+    @objc func configureAndStartSession() {
+        // Double-check free space before engaging audio engine – user may have deleted/added files since permission prompt.
+        guard hasSufficientDiskSpace() else {
+            self.recordingError = .diskFull
+            return
+        }
         let selectedQuality = AppSettings.shared.quality
         
         do {
@@ -85,29 +142,32 @@ class RecordingViewModel: ObservableObject {
             registerForNotifications()
         } catch {
             print("AudioSession error: \(error)")
+            recordingError = .engineFailure(error.localizedDescription)
         }
         
-        // Build a recording format that the audio engine is guaranteed to work with (mono, 32-bit float). Using
-        // `.pcmFormatFloat32` avoids the crash that occurs when the buffer format doesn't exactly match the file
-        // format during `AVAudioFile.write(from:)`.
-        guard let manualFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                               sampleRate: Double(selectedQuality.sampleRate),
-                                               channels: 1,
-                                               interleaved: false) else {
-            print("Failed to create manual AVAudioFormat")
-            return
-        }
+        // Ask the engine for its actual hardware input format (takes into account current route, sample-rate, channel
+        // count, etc.). Using this format for the tap guarantees that Core Audio doesn't throw the "Input HW format
+        // and tap format not matching" exception.
+        let hwFormat = engine.inputNode.outputFormat(forBus: 0)
 
-        inputFormat = manualFormat
+        inputFormat = hwFormat
 
-        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: manualFormat) { [weak self] buffer, _ in
-            guard let self, let file = self.currentFile else { return }
-            do {
-                try file.write(from: buffer)
-                try self.masterAudioFile?.write(from: buffer)
-                self.computeAudioLevel(buffer: buffer)
-            } catch {
-                print("Write error: \(error)")
+        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) { [weak self] buffer, _ in
+            autoreleasepool {
+                guard let self, let file = self.currentFile else { return }
+                do {
+                    try file.write(from: buffer)
+                    try self.masterAudioFile?.write(from: buffer)
+                    self.computeAudioLevel(buffer: buffer)
+                } catch {
+                    print("Write error: \(error)")
+                    if let nsError = error as NSError?, nsError.code == NSFileWriteOutOfSpaceError {
+                        self.recordingError = .diskFull
+                        self.stopRecording()
+                    } else {
+                        self.recordingError = .fileWrite(error.localizedDescription)
+                    }
+                }
             }
         }
         
@@ -117,8 +177,14 @@ class RecordingViewModel: ObservableObject {
             createNewSegmentFile()
             startTimers()
             isRecording = true
+            
+            // Set active session flag for recovery
+            if let uuid = currentSession?.id {
+                AppSettings.shared.activeRecordingSessionID = uuid.uuidString
+            }
         } catch {
             print("Engine start error: \(error)")
+            recordingError = .engineFailure(error.localizedDescription)
         }
     }
     
@@ -126,22 +192,27 @@ class RecordingViewModel: ObservableObject {
         guard let format = inputFormat else { return }
         
         // Create master audio file for the full session
-        let masterFileName = UUID().uuidString + "." + AppSettings.shared.quality.fileExtension
+        let selectedQuality = AppSettings.shared.quality
+        let masterFileName = UUID().uuidString + "." + selectedQuality.fileExtension
         let masterFileURL = recordingsDir.appendingPathComponent(masterFileName)
         
         do {
-            masterAudioFile = try AVAudioFile(forWriting: masterFileURL, settings: format.settings)
+            masterAudioFile = try AVAudioFile(forWriting: masterFileURL, settings: audioFileSettings(channelCount: format.channelCount))
+            
+            // Apply file protection to encrypt on-disk audio
+            applyFileProtection(to: masterFileURL)
         } catch {
             print("Master file creation error: \(error)")
+            recordingError = .fileWrite(error.localizedDescription)
             return
         }
         
         let sessionModel = RecordingSession(
             title: "Recording \(Date().formatted(date: .abbreviated, time: .shortened))",
             audioFilePath: masterFileURL.path,
-            sampleRate: format.sampleRate,
-            bitDepth: Int(truncating: format.settings[AVLinearPCMBitDepthKey] as? NSNumber ?? 16),
-            format: "caf"
+            sampleRate: Double(selectedQuality.sampleRate),
+            bitDepth: selectedQuality.bitDepth,
+            format: selectedQuality.fileExtension
         )
         currentSession = sessionModel
         currentDuration = 0
@@ -149,13 +220,15 @@ class RecordingViewModel: ObservableObject {
     
     private func createNewSegmentFile() {
         guard let format = inputFormat else { return }
-        let filename = UUID().uuidString + ".caf"
+        let filename = UUID().uuidString + "." + AppSettings.shared.quality.fileExtension
         let fileURL = recordingsDir.appendingPathComponent(filename)
         do {
-            currentFile = try AVAudioFile(forWriting: fileURL, settings: format.settings)
+            currentFile = try AVAudioFile(forWriting: fileURL, settings: audioFileSettings(channelCount: format.channelCount))
+            applyFileProtection(to: fileURL)
             appendSegmentModel(fileURL: fileURL)
         } catch {
             print("File create error: \(error)")
+            recordingError = .fileWrite(error.localizedDescription)
         }
     }
     
@@ -186,9 +259,20 @@ class RecordingViewModel: ObservableObject {
                 self.rotateSegmentFile()
             }
         }
+        
+        // Periodic disk-space safety check (every 5 s)
+        diskMonitorTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if !self.hasSufficientDiskSpace() {
+                Task { @MainActor in
+                    self.recordingError = .diskFull
+                    self.stopRecording()
+                }
+            }
+        }
     }
     
-    private func rotateSegmentFile() {
+    @objc private func rotateSegmentFile() {
         // Capture the segment that just finished recording
         let justFinishedSegment = currentSession?.segments.last
         
@@ -205,9 +289,14 @@ class RecordingViewModel: ObservableObject {
         guard let channelData = buffer.floatChannelData?[0] else { return }
         let channelDataArray = Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
         let rms = sqrt(channelDataArray.map { $0 * $0 }.reduce(0, +) / Float(buffer.frameLength))
-        let level = max(0.05, min(1.0, rms * 20))
+        let level = max(0.0, min(1.0, rms * 20))
         DispatchQueue.main.async {
             self.audioLevel = level
+            // Maintain waveform sample history for the UI
+            self.waveformSamples.append(level)
+            if self.waveformSamples.count > self.maxWaveformSamples {
+                self.waveformSamples.removeFirst(self.waveformSamples.count - self.maxWaveformSamples)
+            }
         }
     }
     
@@ -217,6 +306,7 @@ class RecordingViewModel: ObservableObject {
         engine.stop()
         durationTimer?.invalidate(); durationTimer = nil
         segmentTimer?.invalidate(); segmentTimer = nil
+        diskMonitorTimer?.invalidate(); diskMonitorTimer = nil
         isRecording = false
         
         // Save to SwiftData
@@ -235,11 +325,15 @@ class RecordingViewModel: ObservableObject {
         if let session = currentSession, let context = modelContext {
             context.insert(session)
             try? context.save()
+            NotificationCenter.default.post(name: .tmSessionCreated, object: nil)
         }
         
         masterAudioFile = nil
         currentFile = nil
         // TODO: trigger transcription pipeline here
+        
+        // Clear active session flag
+        AppSettings.shared.activeRecordingSessionID = nil
     }
     
     // MARK: Notifications
@@ -249,6 +343,8 @@ class RecordingViewModel: ObservableObject {
 #if canImport(UIKit)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleMemoryWarning), name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAppWillTerminate), name: UIApplication.willTerminateNotification, object: nil)
 #endif
     }
     
@@ -259,6 +355,7 @@ class RecordingViewModel: ObservableObject {
         switch type {
         case .began:
             pauseRecording()
+            recordingError = .microphoneRevoked
         case .ended:
             if let optionsValue = info[AVAudioSessionInterruptionOptionKey] as? UInt {
                 let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
@@ -268,7 +365,7 @@ class RecordingViewModel: ObservableObject {
         }
     }
     
-    @objc private func handleRouteChange(_ notification: Notification) {
+    @objc func handleRouteChange(_ notification: Notification) {
         guard let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
 
@@ -317,55 +414,7 @@ class RecordingViewModel: ObservableObject {
     
     // MARK: - Transcription Logic
     private func startTranscription(for segment: AudioSegment) {
-        // Avoid duplicate work
-        guard transcriptionTasks[segment.id] == nil else { return }
-        
-        // Update status
-        segment.status = .inProgress
-        if let context = modelContext {
-            try? context.save()
-        }
-        
-        let task = Task.detached { [weak self] in
-            guard let self else { return }
-            do {
-                // Convert CAF to M4A for Whisper compatibility
-                let cafURL = URL(fileURLWithPath: segment.segmentFilePath)
-                let m4aURL = AudioConverter.temporaryM4AURL()
-                let convertedURL = try AudioConverter.convertCAFToM4A(sourceURL: cafURL, destinationURL: m4aURL)
-                
-                // Upload the M4A file to transcription service
-                let text = try await TranscriptionService.transcribeAudio(at: convertedURL)
-                
-                // Clean up temporary M4A file
-                try? FileManager.default.removeItem(at: convertedURL)
-                
-                _ = await MainActor.run {
-                    // Create transcription model and persist
-                    let transcription = Transcription(text: text, confidence: 1.0, source: .whisperAPI)
-                    transcription.segment = segment
-                    segment.transcription = transcription
-                    segment.status = .completed
-                    if let context = self.modelContext {
-                        try? context.save()
-                    }
-                    // Notify any SwiftUI views bound to this view model
-                    self.objectWillChange.send()
-                }
-            } catch {
-                _ = await MainActor.run {
-                    segment.status = .failed
-                    segment.lastError = error.localizedDescription
-                    if let context = self.modelContext {
-                        try? context.save()
-                    }
-                    self.objectWillChange.send()
-                }
-            }
-            _ = await MainActor.run { self.transcriptionTasks.removeValue(forKey: segment.id) }
-        }
-        
-        transcriptionTasks[segment.id] = task
+        transcriptionManager?.enqueue(segment: segment)
     }
 
 #if canImport(UIKit)
@@ -388,7 +437,58 @@ class RecordingViewModel: ObservableObject {
             backgroundTaskID = .invalid
         }
     }
+
+    @objc private func handleMemoryWarning() {
+        print("[Memory] Warning received – stopping recording to free resources")
+        stopRecording()
+    }
+
+    @objc private func handleAppWillTerminate() {
+        print("[Lifecycle] App terminating – stopping recording")
+        stopRecording()
+    }
 #endif
+
+    // MARK: File Protection Helper
+    private func applyFileProtection(to url: URL) {
+        #if os(iOS)
+        do {
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: url.path)
+        } catch {
+            print("Failed to set file protection: \(error)")
+        }
+        #endif
+    }
+
+    // MARK: Disk space helpers
+    /// Returns `true` if the device currently has at least `minimumRequiredFreeSpace` bytes available.
+    private func hasSufficientDiskSpace() -> Bool {
+        do {
+            let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let values = try documentsURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            if let available = values.volumeAvailableCapacityForImportantUsage {
+                return available > minimumRequiredFreeSpace
+            }
+        } catch {
+            print("[Disk] Could not read free space: \(error)")
+            // Fail-open so we don't block recording unnecessarily.
+            return true
+        }
+        return true
+    }
+
+    // Helper to build audio file settings according to the selected quality
+    private func audioFileSettings(channelCount: AVAudioChannelCount) -> [String: Any] {
+        let quality = AppSettings.shared.quality
+        return [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: Double(quality.sampleRate),
+            AVNumberOfChannelsKey: channelCount,
+            AVLinearPCMBitDepthKey: quality.bitDepth,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false
+        ]
+    }
 }
 
 // Mock data (only used for previews / debug)

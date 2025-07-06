@@ -44,6 +44,9 @@ struct AppSettings {
         static let quality = "selectedQuality"
         static let backgroundRecording = "enableBackgroundRecording"
         static let showLevels = "showLevels"
+        static let activeSession = "activeRecordingSessionID"
+        static let simulateOffline = "simulateOffline"
+        static let segmentLength = "segmentLength"
     }
 
     var quality: RecordingQuality {
@@ -59,5 +62,28 @@ struct AppSettings {
     var showLevels: Bool {
         get { defaults.object(forKey: Keys.showLevels) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Keys.showLevels) }
+    }
+
+    /// UUID string of a `RecordingSession` that was recording when the app terminated (for recovery).
+    var activeRecordingSessionID: String? {
+        get { defaults.string(forKey: Keys.activeSession) }
+        nonmutating set {
+            if let id = newValue {
+                defaults.set(id, forKey: Keys.activeSession)
+            } else {
+                defaults.removeObject(forKey: Keys.activeSession)
+            }
+        }
+    }
+
+    var simulateOfflineMode: Bool {
+        get { defaults.object(forKey: Keys.simulateOffline) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Keys.simulateOffline) }
+    }
+
+    /// Segment length in seconds for audio recording (default: 30 seconds)
+    var segmentLength: TimeInterval {
+        get { defaults.object(forKey: Keys.segmentLength) as? TimeInterval ?? 30.0 }
+        set { defaults.set(newValue, forKey: Keys.segmentLength) }
     }
 } 

@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import AVFoundation
+import Combine
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -67,15 +68,37 @@ struct AudioPlaybar: View {
     }
     
     private func setupAudioPlayer() {
-        let url = URL(fileURLWithPath: audioFilePath)
         do {
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.prepareToPlay()
-            if totalDuration == 0 {
-                totalDuration = audioPlayer?.duration ?? 0
-            }
+            let session = AVAudioSession.sharedInstance()
+            // Always switch to playback (no options) – this is a safe category for AVAudioPlayer.
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true)
         } catch {
-            print("Audio player setup error: \(error)")
+            print("AVAudioSession playback activation error: \(error)")
+        }
+
+        guard let resolvedURL = resolveAudioURL(originalPath: audioFilePath) else {
+            print("Audio file not found after resolution attempts: \(audioFilePath)")
+            return
+        }
+
+        do {
+            // First try letting the system infer the type.
+            audioPlayer = try AVAudioPlayer(contentsOf: resolvedURL)
+         
+            audioPlayer?.prepareToPlay()
+            // Always use the actual file duration for accurate progress view
+            totalDuration = audioPlayer?.duration ?? totalDuration
+        } catch {
+            // Retry with CAF hint in case inference failed (older iOS versions).
+            do {
+                audioPlayer = try AVAudioPlayer(contentsOf: resolvedURL, fileTypeHint: AVFileType.caf.rawValue)
+                audioPlayer?.prepareToPlay()
+                // Always use the actual file duration for accurate progress view
+                totalDuration = audioPlayer?.duration ?? totalDuration
+            } catch {
+                print("Audio player setup error: \(error)")
+            }
         }
     }
     
@@ -96,7 +119,7 @@ struct AudioPlaybar: View {
     private func startTimer() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             if let player = audioPlayer {
-                currentTime = player.currentTime
+                currentTime = min(player.currentTime, totalDuration)
                 if !player.isPlaying {
                     isPlaying = false
                     timer?.invalidate()
@@ -118,6 +141,26 @@ struct AudioPlaybar: View {
         let seconds = Int(time) % 60
         return String(format: "%d:%02d", minutes, seconds)
     }
+    
+    // MARK: - Path Resolution
+    private func resolveAudioURL(originalPath: String) -> URL? {
+        let fileManager = FileManager.default
+        let originalURL = URL(fileURLWithPath: originalPath)
+        if fileManager.fileExists(atPath: originalURL.path) { return originalURL }
+
+        // Attempt 1: same filename in current Recordings directory (handles new app container)
+        let recordingsDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Recordings")
+        let candidate = recordingsDir.appendingPathComponent(originalURL.lastPathComponent)
+        if fileManager.fileExists(atPath: candidate.path) { return candidate }
+
+        // Attempt 2: try with .m4a extension (in case master files were converted)
+        let baseName = originalURL.deletingPathExtension().lastPathComponent
+        let m4aCandidate = recordingsDir.appendingPathComponent(baseName + ".m4a")
+        if fileManager.fileExists(atPath: m4aCandidate.path) { return m4aCandidate }
+
+        return nil // give up
+    }
 }
 
 struct HomeView: View {
@@ -125,18 +168,18 @@ struct HomeView: View {
     
     @State private var selectedTab: Tab = .memories
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \RecordingSession.createdAt, order: .reverse) private var sessions: [RecordingSession]
+    @StateObject private var vm = HomeViewModel()
     @State private var navigateToRecord = false
     @State private var selectedSession: RecordingSession?
     @State private var showSettings = false
+    @State private var showDeleteAlert = false
+    @State private var sessionToDelete: RecordingSession?
     
-    // Group sessions by calendar day so we can show a header per date.
+    // Group sessions by calendar day for sectioned list
     private var sessionsByDay: [(date: Date, sessions: [RecordingSession])] {
         let calendar = Calendar.current
-        let grouped = Dictionary(grouping: sessions) { calendar.startOfDay(for: $0.createdAt) }
-        // Convert dictionary elements into tuples with explicit names for clarity and sort newest first
-        return grouped
-            .map { (date: $0.key, sessions: $0.value) }
+        let grouped = Dictionary(grouping: vm.sessions) { calendar.startOfDay(for: $0.createdAt) }
+        return grouped.map { (date: $0.key, sessions: $0.value.sorted { $0.createdAt > $1.createdAt }) }
             .sorted { $0.date > $1.date }
     }
     
@@ -165,6 +208,25 @@ struct HomeView: View {
         .sheet(isPresented: $showSettings) {
             SettingsSheet(isPresented: $showSettings)
         }
+        // only in-section search bar
+        .onAppear {
+            vm.setContext(modelContext)
+        }
+        .alert(isPresented: $showDeleteAlert) {
+            Alert(
+                title: Text("Delete Recording"),
+                message: Text("Are you sure you want to delete this recording? This action cannot be undone."),
+                primaryButton: .destructive(Text("Delete")) {
+                    if let session = sessionToDelete {
+                        deleteSession(session)
+                        sessionToDelete = nil
+                    }
+                },
+                secondaryButton: .cancel {
+                    sessionToDelete = nil
+                }
+            )
+        }
     }
     
     // MARK: Header
@@ -184,6 +246,11 @@ struct HomeView: View {
                 .font(.title3)
                 .fontWeight(.semibold)
                 .foregroundColor(.tmBlueDark)
+
+            Circle()
+                .fill(BannerManager.shared.isOnline ? Color.green : Color.red)
+                .frame(width: 10, height: 10)
+                .accessibilityLabel(Text(BannerManager.shared.isOnline ? "Online" : "Offline"))
             
             Spacer()
             
@@ -221,52 +288,70 @@ struct HomeView: View {
     }
     
     private var memoriesPage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(sessionsByDay.enumerated()), id: \.offset) { _, day in
-                    // Date header
-                    Text(formatDateHeader(day.date))
+        VStack(spacing: 0) {
+            // Search bar above the list
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                TextField("Search memories", text: $vm.searchText)
+                    .textFieldStyle(PlainTextFieldStyle())
+            }
+            .padding(8)
+            .background(Color(UIColor.secondarySystemBackground))
+            .cornerRadius(10)
+            .padding(.horizontal)
+            .padding(.top, 8)
+            
+            // Virtualized List for performance
+            List {
+                ForEach(sessionsByDay, id: \.date) { group in
+                    Section(header: Text(formatDateHeader(group.date))
                         .font(.headline)
-                        .padding(.top, 8)
-
-                    // Session rows for this day
-                    ForEach(day.sessions) { session in
-                        memoryRow(session)
+                        .foregroundColor(.primary)
+                        .textCase(nil)) {
+                        ForEach(group.sessions, id: \.id) { session in
+                            Button(action: { selectedSession = session; navigateToRecord = true }) {
+                                HStack {
+                                    // left time column
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(session.createdAt.formatted(date: .omitted, time: .shortened))
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Text(session.title)
+                                            .font(.subheadline)
+                                            .foregroundColor(.primary)
+                                    }
+                                    Spacer()
+                                    Text(formatDuration(session.duration))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .onAppear { vm.loadNextPageIfNeeded(current: session) }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    sessionToDelete = session
+                                    showDeleteAlert = true
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    sessionToDelete = session
+                                    showDeleteAlert = true
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-        }
-    }
-    
-    private func memoryRow(_ session: RecordingSession) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.createdAt, format: .dateTime.hour().minute())
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(session.title)
-            }
-            Spacer()
-            Text(formatDuration(session.duration))
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12).fill(cellBackground)
-        )
-        .onTapGesture {
-            selectedSession = session
-            navigateToRecord = true
-        }
-        .contextMenu {
-            Button(role: .destructive) {
-                deleteSession(session)
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
+            .listStyle(PlainListStyle())
+            .refreshable { vm.refresh() }
         }
     }
     
@@ -349,6 +434,9 @@ struct HomeView: View {
         // Delete from SwiftData
         modelContext.delete(session)
         try? modelContext.save()
+
+        // Remove from in-memory list so UI updates immediately
+        vm.remove(session: session)
     }
     
     // Formats a date for the section header, e.g. "Wed, Jul 2".
@@ -389,6 +477,11 @@ struct RecordingViewTemp: View {
     @State private var selectedTab: RecordingTab = .notes
     @State private var sessionTitle: String = "Untitled"
     @State private var isEditingTitle: Bool = false
+    // Export / Share state
+    @State private var isExporting = false
+    @State private var exportError: ExportError?
+    @State private var showingExportSuccess = false
+    @State private var exportedFileURL: URL?
     
     // For viewing existing sessions
     let existingSession: RecordingSession?
@@ -410,10 +503,34 @@ struct RecordingViewTemp: View {
                 }
                 Spacer()
                 if !isRecordingMode {
-                    Button(action: {}) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.title2)
-                            .foregroundColor(.blue)
+                    Menu {
+                        Button(action: exportAudio) {
+                            Label("Export Audio", systemImage: "music.note")
+                        }
+                        .disabled(isExporting)
+
+                        Button(action: exportTranscript) {
+                            Label("Export Transcript", systemImage: "doc.text")
+                        }
+                        .disabled(isExporting || !hasTranscription)
+
+                        Button(action: shareSession) {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(isExporting)
+                    } label: {
+                        // Fixed-size container to avoid jitter when switching between icon and spinner
+                        ZStack {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.title2)
+                                .foregroundColor(.blue)
+                                .opacity(isExporting ? 0 : 1)
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .primary))
+                                .scaleEffect(0.8)
+                                .opacity(isExporting ? 1 : 0)
+                        }
+                        .frame(width: 24, height: 24) // Keeps width/height constant
                     }
                 }
             }
@@ -432,7 +549,19 @@ struct RecordingViewTemp: View {
                             .fontWeight(.bold)
                             .foregroundColor(.blue)
                             .autocapitalization(.words)
-                        Button(action: { isEditingTitle = false }) {
+                        Button(action: {
+                            // Exit editing mode and persist the new title
+                            isEditingTitle = false
+                            if let session = existingSession {
+                                // Update existing session and save context
+                                session.title = sessionTitle
+                                try? modelContext.save()
+                                NotificationCenter.default.post(name: .tmSessionCreated, object: nil) // refresh lists
+                            } else {
+                                // Update in-progress recording session; it will be saved on stopRecording()
+                                viewModel.currentSession?.title = sessionTitle
+                            }
+                        }) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
                                 .font(.title2)
@@ -504,6 +633,20 @@ struct RecordingViewTemp: View {
             if viewModel.isRecording {
                 viewModel.stopRecording()
             }
+        }
+        // Export alerts
+        .alert("Export Successful", isPresented: $showingExportSuccess) {
+            Button("OK") { }
+            if let url = exportedFileURL {
+                Button("Open") { openFile(url) }
+            }
+        } message: {
+            Text("File has been exported successfully.")
+        }
+        .alert("Export Error", isPresented: .constant(exportError != nil)) {
+            Button("OK") { exportError = nil }
+        } message: {
+            Text(exportError?.errorDescription ?? "Unknown error occurred.")
         }
     }
     
@@ -579,8 +722,9 @@ struct RecordingViewTemp: View {
     private var transcriptSection: some View {
         ScrollView {
             VStack(spacing: 12) {
-                // Add audio playbar for completed sessions
-                if let session = existingSession, !session.audioFilePath.isEmpty {
+                // Add audio playbar for completed sessions or newly finished recordings
+                if let session = existingSession ?? (!viewModel.isRecording ? viewModel.currentSession : nil),
+                   !session.audioFilePath.isEmpty {
                     AudioPlaybar(audioFilePath: session.audioFilePath, duration: session.duration)
                         .padding(.vertical, 16)
                 }
@@ -776,10 +920,13 @@ struct RecordingViewTemp: View {
     
     private var recordingBottomControls: some View {
         HStack(spacing: 12) {
-            Button(action: {}) {
+            // Pause / Resume
+            Button(action: {
+                if viewModel.isPaused { viewModel.resumeRecording() } else { viewModel.pauseRecording() }
+            }) {
                 HStack {
-                    Image(systemName: "bubble.left.and.bubble.right")
-                    Text("Chat with Transcript")
+                    Image(systemName: viewModel.isPaused ? "play.circle" : "pause.circle")
+                    Text(viewModel.isPaused ? "Resume" : "Pause")
                 }
                 .foregroundColor(.primary)
                 .padding(.horizontal, 20)
@@ -787,9 +934,20 @@ struct RecordingViewTemp: View {
                 .background(Color.secondary.opacity(0.1))
                 .cornerRadius(25)
             }
-            Button(action: {
-                viewModel.stopRecording()
-            }) {
+            // Existing chat button (optional) - keeping minimal
+            Button(action: {}) {
+                HStack {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                    Text("Chat")
+                }
+                .foregroundColor(.primary)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(25)
+            }
+            // Stop button
+            Button(action: { viewModel.stopRecording() }) {
                 HStack {
                     Image(systemName: "stop.circle")
                     Text("Stop")
@@ -879,6 +1037,74 @@ struct RecordingViewTemp: View {
         // Check if all segments have no transcription
         let hasAnyTranscription = session.segments.contains { $0.transcription?.text.isEmpty == false }
         return !hasAnyTranscription
+    }
+    
+    // MARK: - Export & Share
+    private func exportAudio() {
+        guard let session = existingSession else { return }
+        isExporting = true
+        ExportManager.exportAudio(for: session) { result in
+            isExporting = false
+            switch result {
+            case .success(let url):
+                exportedFileURL = url
+                showingExportSuccess = true
+            case .failure(let error):
+                exportError = error
+            }
+        }
+    }
+
+    private func exportTranscript() {
+        guard let session = existingSession else { return }
+        isExporting = true
+        ExportManager.exportTranscript(for: session) { result in
+            isExporting = false
+            switch result {
+            case .success(let url):
+                exportedFileURL = url
+                showingExportSuccess = true
+            case .failure(let error):
+                exportError = error
+            }
+        }
+    }
+
+    private func shareSession() {
+        guard let session = existingSession else { return }
+        isExporting = true
+        ExportManager.exportTranscript(for: session) { result in
+            isExporting = false
+            switch result {
+            case .success(let url):
+                presentActivity(with: [url])
+            case .failure(let error):
+                exportError = error
+            }
+        }
+    }
+
+    private func openFile(_ url: URL) {
+        presentActivity(with: [url])
+    }
+
+    // Presents a system share sheet (QuickLook-friendly)
+    private func presentActivity(with items: [Any]) {
+#if canImport(UIKit)
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first,
+           let rootVC = window.rootViewController {
+            var presenter = rootVC
+            while let presented = presenter.presentedViewController { presenter = presented }
+            presenter.present(activityVC, animated: true)
+        }
+#endif
+    }
+
+    // Are there any completed transcriptions?
+    private var hasTranscription: Bool {
+        existingSession?.segments.contains { $0.transcription != nil } ?? false
     }
 }
 
