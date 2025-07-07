@@ -10,6 +10,7 @@ import SwiftData
 
 struct SessionDetailView: View {
     let session: RecordingSession
+    let searchQuery: String? // Optional search query for highlighting
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var selectedSegment: AudioSegment?
@@ -19,6 +20,11 @@ struct SessionDetailView: View {
     @State private var showingExportSuccess = false
     @State private var exportedFileURL: URL?
     @State private var transcriptionManager: TranscriptionManager?
+    
+    init(session: RecordingSession, searchQuery: String? = nil) {
+        self.session = session
+        self.searchQuery = searchQuery
+    }
     
     var body: some View {
         ScrollView {
@@ -180,6 +186,7 @@ struct SessionDetailView: View {
                         SegmentRowView(
                             segment: segment,
                             isSelected: selectedSegment?.id == segment.id,
+                            searchQuery: searchQuery,
                             onTap: {
                                 selectedSegment = selectedSegment?.id == segment.id ? nil : segment
                             },
@@ -376,6 +383,7 @@ struct StatCard: View {
 struct SegmentRowView: View {
     let segment: AudioSegment
     let isSelected: Bool
+    let searchQuery: String?
     let onTap: () -> Void
     let onRetry: (AudioSegment) -> Void
     let onShare: (AudioSegment) -> Void
@@ -450,7 +458,7 @@ struct SegmentRowView: View {
             
             // Expanded transcription view
             if isSelected {
-                TranscriptionDetailView(segment: segment, onRetryTranscription: onRetry, onShareSegment: onShare)
+                TranscriptionDetailView(segment: segment, searchQuery: searchQuery, onRetryTranscription: onRetry, onShareSegment: onShare)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                     .animation(.easeInOut(duration: 0.3), value: isSelected)
             }
@@ -525,8 +533,16 @@ struct TranscriptionStatusBadge: View {
 
 struct TranscriptionDetailView: View {
     let segment: AudioSegment
+    let searchQuery: String?
     let onRetryTranscription: (AudioSegment) -> Void
     let onShareSegment: (AudioSegment) -> Void
+    
+    init(segment: AudioSegment, searchQuery: String? = nil, onRetryTranscription: @escaping (AudioSegment) -> Void, onShareSegment: @escaping (AudioSegment) -> Void) {
+        self.segment = segment
+        self.searchQuery = searchQuery
+        self.onRetryTranscription = onRetryTranscription
+        self.onShareSegment = onShareSegment
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -536,6 +552,17 @@ struct TranscriptionDetailView: View {
                         .font(.headline)
                         .fontWeight(.semibold)
                     
+                    // Show highlighted text if there's a search query
+                    if let searchQuery = searchQuery, !searchQuery.isEmpty {
+                        HighlightedText(text: transcriptionText, searchQuery: searchQuery)
+                            .font(.body)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.secondary.opacity(0.1))
+                            )
+                    } else {
                     Text(transcriptionText)
                         .font(.body)
                         .padding(.horizontal, 16)
@@ -544,6 +571,7 @@ struct TranscriptionDetailView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.secondary.opacity(0.1))
                         )
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {

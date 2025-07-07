@@ -92,7 +92,7 @@ class TranscriptionManager {
             if await self.hasNetwork {
                 await self.attemptRemoteTranscription(for: segment)
             } else {
-                await self.handleTranscriptionFailure(segment: segment, error: NSError(domain: "TranscriptionManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No network connection (simulated: \(AppSettings.shared.simulateOfflineMode)) "]))
+                await self.attemptLocalTranscription(for: segment)
             }
         }
     }
@@ -198,6 +198,40 @@ class TranscriptionManager {
             segment.status = .completed
             segment.lastError = nil
             try? modelContext.save()
+            
+            // Update widget when transcription is completed
+            NotificationCenter.default.post(name: .tmSessionCreated, object: nil)
+            
+            // Check if all transcriptions for this session are complete
+            if let session = segment.session {
+                checkSessionCompletionAndGenerateSummary(for: session)
+            }
+        }
+    }
+    
+    /// Check if all transcriptions for a session are complete and generate summary if so
+    private func checkSessionCompletionAndGenerateSummary(for session: RecordingSession) {
+        let allSegments = session.segments
+        let completedSegments = allSegments.filter { $0.status == .completed && $0.transcription?.text.isEmpty == false }
+        let failedSegments = allSegments.filter { $0.status == .failed && $0.retryCount >= 5 }
+        
+        // Consider session complete if all segments are either completed with transcription or failed after max retries
+        let processedSegments = completedSegments.count + failedSegments.count
+        let totalSegments = allSegments.count
+        
+        print("[SessionSummary] Session '\(session.title)' progress: \(processedSegments)/\(totalSegments) segments processed")
+        
+        if processedSegments == totalSegments && processedSegments > 0 {
+            print("[SessionSummary] All transcriptions complete for session: \(session.title)")
+            
+            // Only generate summary if we have at least some transcribed content
+            if completedSegments.count > 0 {
+                Task {
+                    await SessionSummaryService.shared.generateSummary(for: session, modelContext: modelContext)
+                }
+            } else {
+                print("[SessionSummary] No successful transcriptions for session, skipping summary generation")
+            }
         }
     }
 

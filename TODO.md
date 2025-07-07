@@ -49,9 +49,9 @@
 [✓] Securely store API tokens using the Keychain
 [✓] Follow iOS privacy best practices for microphone access
 
-[-] Publish the complete Xcode project to a GitHub repository
+[✓] Publish the complete Xcode project to a GitHub repository
 [X] Write a clear README with setup instructions
-[-] Maintain a proper git history that reflects the development process
+[✓] Maintain a proper git history that reflects the development process
 [✓] Add code comments explaining complex audio and concurrency logic
 
 [X] Produce an architecture document detailing high-level design decisions
@@ -66,7 +66,6 @@
 
 [✓] Implement real-time audio waveform or level-meter visualization (Bonus)
 [✓] Add export functionality to share sessions in various formats (Bonus)
-[X] Implement full-text search across transcriptions (Bonus)
-    - Only works with beginning of the transcription
-[X] Add custom audio processing such as noise reduction or enhancement (Bonus)
-[X] Develop an iOS widget for quick recording access (Bonus) 
+[✓] Implement full-text search across transcriptions (Bonus)
+[✓] Add custom audio processing such as noise reduction or enhancement (Bonus)
+[✓] Develop an iOS widget for quick recording access (Bonus) 

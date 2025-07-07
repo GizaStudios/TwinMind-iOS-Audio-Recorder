@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import Speech
+import WidgetKit
 
 @main
 struct TwinMindApp: App {
@@ -72,8 +73,145 @@ struct TwinMindApp: App {
                             }
                         }
                     }
+                    
+                    // Setup widget integration
+                    setupWidgetIntegration()
+                    
+                    // Update widget data
+                    updateWidgetSessionCount()
+                }
+                .onOpenURL { url in
+                    handleWidgetURL(url)
                 }
         }
         .modelContainer(sharedModelContainer)
     }
+    
+    // MARK: - Widget Integration
+    
+    private func setupWidgetIntegration() {
+        // Listen for widget notifications
+        NotificationCenter.default.addObserver(
+            forName: .widgetStartRecording,
+            object: nil,
+            queue: .main
+        ) { _ in
+            self.handleWidgetStartRecording()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: .widgetStopRecording,
+            object: nil,
+            queue: .main
+        ) { _ in
+            self.handleWidgetStopRecording()
+        }
+        
+        // Listen for session updates to refresh widget
+        NotificationCenter.default.addObserver(
+            forName: .tmSessionCreated,
+            object: nil,
+            queue: .main
+        ) { _ in
+            self.updateWidgetSessionCount()
+        }
+        
+        // Update widget with current session count
+        updateWidgetSessionCount()
+    }
+    
+    private func handleWidgetStartRecording() {
+        print("[Widget] Received start recording request")
+        recordingViewModel.startRecording()
+        // Notify UI to navigate to recording page
+        NotificationCenter.default.post(name: .openRecordingPage, object: nil)
+    }
+    
+    private func handleWidgetStopRecording() {
+        print("[Widget] Received stop recording request")
+        recordingViewModel.stopRecording()
+    }
+    
+    private func handleWidgetURL(_ url: URL) {
+        guard url.scheme == "twinmind" else { return }
+        
+        print("[Widget] Handling URL: \(url)")
+        
+        switch url.host {
+        case "record":
+            handleRecordRequest()
+        default:
+            break
+        }
+    }
+    
+    private func handleRecordRequest() {
+        print("[Widget] Handling record request, current recording state: \(recordingViewModel.isRecording)")
+        
+        if recordingViewModel.isRecording {
+            // If currently recording, just stop it
+            print("[Widget] Stopping current recording")
+            recordingViewModel.stopRecording()
+        } else {
+            // If not recording, start new recording and navigate
+            print("[Widget] Starting new recording session")
+            recordingViewModel.startRecording()
+            
+            // Navigate to recording page
+            NotificationCenter.default.post(name: .openRecordingPage, object: nil)
+            print("[Widget] Posted navigation notification")
+        }
+    }
+    
+    private func updateWidgetSessionCount() {
+        let context = sharedModelContainer.mainContext
+        let fetchDescriptor = FetchDescriptor<RecordingSession>()
+        
+        do {
+            let sessions = try context.fetch(fetchDescriptor)
+            print("[Widget] Found \(sessions.count) sessions in database")
+            SharedWidgetManager.shared.updateSessionCount(sessions.count)
+            
+            // Update recent sessions for widget
+            updateWidgetRecentSessions(sessions: sessions)
+        } catch {
+            print("[Widget] Failed to fetch session count: \(error)")
+        }
+    }
+    
+    private func updateWidgetRecentSessions(sessions: [RecordingSession]) {
+        print("[Widget] Updating recent sessions, total sessions: \(sessions.count)")
+        
+        let recentSessions = sessions
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(5)
+            .compactMap { session -> WidgetSessionInfo? in
+                print("[Widget] Processing session: \(session.title), segments: \(session.segments.count)")
+                
+                // Get transcript snippet from the first segment with completed transcription
+                let transcriptSnippet = session.segments
+                    .first { $0.transcription?.text.isEmpty == false }
+                    .flatMap { $0.transcription?.text }
+                    ?? "No transcript available"
+                
+                print("[Widget] Found transcript snippet: \(String(transcriptSnippet.prefix(50)))...")
+                
+                // Truncate transcript snippet to reasonable length
+                let truncatedSnippet = String(transcriptSnippet.prefix(100))
+                let finalSnippet = transcriptSnippet.count > 100 ? truncatedSnippet + "..." : truncatedSnippet
+                
+                return WidgetSessionInfo(
+                    title: session.title,
+                    createdAt: session.createdAt,
+                    duration: session.duration,
+                    transcriptSnippet: finalSnippet,
+                    sessionCount: sessions.count
+                )
+            }
+        
+        print("[Widget] Sending \(recentSessions.count) recent sessions to widget")
+        SharedWidgetManager.shared.updateRecentSessions(Array(recentSessions))
+    }
+    
+
 }

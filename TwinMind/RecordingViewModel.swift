@@ -10,6 +10,7 @@ import SwiftUI
 import Combine
 import SwiftData
 import AVFoundation
+import WidgetKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -92,6 +93,14 @@ class RecordingViewModel: ObservableObject {
     
     // MARK: - Recording Flow
     func startRecording() {
+        // Prevent double-starting recording
+        guard !isRecording else {
+            print("[Audio] Recording already in progress, ignoring start request")
+            return
+        }
+        
+        print("[Audio] Starting recording...")
+        
         // recording permission
         #if os(iOS)
         if #available(iOS 17.0, *) {
@@ -127,31 +136,58 @@ class RecordingViewModel: ObservableObject {
     }
     
     @objc func configureAndStartSession() {
+        // Prevent concurrent starts
+        guard !isRecording else {
+            print("[Audio] Already recording, aborting start session")
+            return
+        }
+        
         // Double-check free space before engaging audio engine – user may have deleted/added files since permission prompt.
         guard hasSufficientDiskSpace() else {
             self.recordingError = .diskFull
             return
         }
+        
+        // Ensure clean state by stopping engine if it's running
+        if engine.isRunning {
+            print("[Audio] Stopping existing engine before starting new session")
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
+        
         let selectedQuality = AppSettings.shared.quality
         
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth, .defaultToSpeaker])
+            // Use .record category to prevent audio playback during recording
+            try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
             try session.setPreferredSampleRate(Double(selectedQuality.sampleRate))
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             registerForNotifications()
         } catch {
             print("AudioSession error: \(error)")
             recordingError = .engineFailure(error.localizedDescription)
+            return
         }
         
         // Ask the engine for its actual hardware input format (takes into account current route, sample-rate, channel
         // count, etc.). Using this format for the tap guarantees that Core Audio doesn't throw the "Input HW format
         // and tap format not matching" exception.
         let hwFormat = engine.inputNode.outputFormat(forBus: 0)
-
+        print("[Audio] Hardware input format: \(hwFormat)")
         inputFormat = hwFormat
-
+        
+        // Create session and files before installing tap
+        guard prepareNewSession() else {
+            print("[Audio] Failed to prepare new session")
+            return
+        }
+        
+        guard createNewSegmentFile() else {
+            print("[Audio] Failed to create segment file")
+            return
+        }
+        
         engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) { [weak self] buffer, _ in
             autoreleasepool {
                 guard let self, let file = self.currentFile else { return }
@@ -172,11 +208,23 @@ class RecordingViewModel: ObservableObject {
         }
         
         do {
+            // Prepare the engine before starting
+            print("[Audio] Preparing audio engine...")
+            try engine.prepare()
+            print("[Audio] Audio engine prepared successfully")
+            
+            // Configure voice processing after engine is prepared
+            configureVoiceProcessing()
+            
+            print("[Audio] Starting audio engine...")
             try engine.start()
-            prepareNewSession()
-            createNewSegmentFile()
+            print("[Audio] Audio engine started successfully")
+            
             startTimers()
             isRecording = true
+            
+            // Update widget with recording status
+            SharedWidgetManager.shared.updateRecordingStatus(true)
             
             // Set active session flag for recovery
             if let uuid = currentSession?.id {
@@ -185,15 +233,22 @@ class RecordingViewModel: ObservableObject {
         } catch {
             print("Engine start error: \(error)")
             recordingError = .engineFailure(error.localizedDescription)
+            // Clean up on failure
+            engine.inputNode.removeTap(onBus: 0)
+            currentFile = nil
+            masterAudioFile = nil
         }
     }
     
-    private func prepareNewSession() {
-        guard let format = inputFormat else { return }
+    private func prepareNewSession() -> Bool {
+        guard let format = inputFormat else { 
+            print("[Audio] No input format available")
+            return false 
+        }
         
         // Create master audio file for the full session
         let selectedQuality = AppSettings.shared.quality
-        let masterFileName = UUID().uuidString + "." + selectedQuality.fileExtension
+        let masterFileName = UUID().uuidString + ".caf"
         let masterFileURL = recordingsDir.appendingPathComponent(masterFileName)
         
         do {
@@ -204,7 +259,7 @@ class RecordingViewModel: ObservableObject {
         } catch {
             print("Master file creation error: \(error)")
             recordingError = .fileWrite(error.localizedDescription)
-            return
+            return false
         }
         
         let sessionModel = RecordingSession(
@@ -212,23 +267,29 @@ class RecordingViewModel: ObservableObject {
             audioFilePath: masterFileURL.path,
             sampleRate: Double(selectedQuality.sampleRate),
             bitDepth: selectedQuality.bitDepth,
-            format: selectedQuality.fileExtension
+            format: "caf"
         )
         currentSession = sessionModel
         currentDuration = 0
+        return true
     }
     
-    private func createNewSegmentFile() {
-        guard let format = inputFormat else { return }
-        let filename = UUID().uuidString + "." + AppSettings.shared.quality.fileExtension
+    private func createNewSegmentFile() -> Bool {
+        guard let format = inputFormat else { 
+            print("[Audio] No input format available for segment file")
+            return false 
+        }
+        let filename = UUID().uuidString + ".caf"
         let fileURL = recordingsDir.appendingPathComponent(filename)
         do {
             currentFile = try AVAudioFile(forWriting: fileURL, settings: audioFileSettings(channelCount: format.channelCount))
             applyFileProtection(to: fileURL)
             appendSegmentModel(fileURL: fileURL)
+            return true
         } catch {
             print("File create error: \(error)")
             recordingError = .fileWrite(error.localizedDescription)
+            return false
         }
     }
     
@@ -277,7 +338,10 @@ class RecordingViewModel: ObservableObject {
         let justFinishedSegment = currentSession?.segments.last
         
         currentFile = nil
-        createNewSegmentFile()
+        guard createNewSegmentFile() else {
+            print("[Audio] Failed to create new segment file during rotation")
+            return
+        }
         
         // Kick off transcription for the finished segment
         if let segment = justFinishedSegment {
@@ -301,13 +365,36 @@ class RecordingViewModel: ObservableObject {
     }
     
     func stopRecording() {
-        guard isRecording else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        guard isRecording else { 
+            print("[Audio] Stop recording called but not currently recording")
+            return 
+        }
+        
+        print("[Audio] Stopping recording...")
+        
+        // Stop the engine first and remove tap safely
+        if engine.isRunning {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
+        
+        // Stop all timers
         durationTimer?.invalidate(); durationTimer = nil
         segmentTimer?.invalidate(); segmentTimer = nil
         diskMonitorTimer?.invalidate(); diskMonitorTimer = nil
         isRecording = false
+        
+        // Update widget with recording status
+        SharedWidgetManager.shared.updateRecordingStatus(false)
+        
+        // Switch back to playback category for audio playback
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Failed to switch to playback category: \(error)")
+        }
         
         // Save to SwiftData
         currentSession?.duration = currentDuration
@@ -322,18 +409,40 @@ class RecordingViewModel: ObservableObject {
             startTranscription(for: lastSeg)
         }
         
+        // Ensure files are properly closed and finalized
+        if let masterFile = masterAudioFile {
+            // Force the file to be finalized
+            masterFile.processingFormat
+            masterAudioFile = nil
+        }
+        if let currentFile = currentFile {
+            // Force the file to be finalized
+            currentFile.processingFormat
+            self.currentFile = nil
+        }
+        
+        // Convert CAF files to M4A for better compatibility
+        if let session = currentSession {
+            convertToM4AIfNeeded(session: session)
+        }
+        
         if let session = currentSession, let context = modelContext {
             context.insert(session)
             try? context.save()
             NotificationCenter.default.post(name: .tmSessionCreated, object: nil)
+            print("[Audio] Recording session saved successfully")
+            
+            // Update widget with new session count
+            updateWidgetSessionCount()
+            
+            // Notify that initial audio file is ready (before conversion)
+            NotificationCenter.default.post(name: .tmAudioFileReady, object: session)
         }
-        
-        masterAudioFile = nil
-        currentFile = nil
-        // TODO: trigger transcription pipeline here
         
         // Clear active session flag
         AppSettings.shared.activeRecordingSessionID = nil
+        
+        print("[Audio] Recording stopped successfully")
     }
     
     // MARK: Notifications
@@ -372,17 +481,22 @@ class RecordingViewModel: ObservableObject {
         print("Audio route changed: \(reason)")
 
         switch reason {
-        case .oldDeviceUnavailable, .newDeviceAvailable, .routeConfigurationChange, .override, .categoryChange:
+        case .oldDeviceUnavailable, .newDeviceAvailable:
+            // Only pause/resume for actual device changes, not configuration changes
             pauseRecording()
             // Give the system a brief moment to stabilise the route before resuming.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self else { return }
-                // Re-apply preferred sample-rate in case the underlying HW changed
+                // Re-apply preferred sample-rate and category in case the underlying HW changed
                 let session = AVAudioSession.sharedInstance()
                 let selectedQuality = AppSettings.shared.quality
                 try? session.setPreferredSampleRate(Double(selectedQuality.sampleRate))
+                try? session.setCategory(.record, mode: .default, options: [.allowBluetooth])
                 self.resumeRecording()
             }
+        case .routeConfigurationChange, .override, .categoryChange:
+            // Don't pause/resume for configuration changes - these are often internal
+            print("Ignoring route configuration change to prevent pause/resume loop")
         default:
             break
         }
@@ -395,11 +509,25 @@ class RecordingViewModel: ObservableObject {
         isPaused = true
         durationTimer?.invalidate(); durationTimer = nil
         segmentTimer?.invalidate(); segmentTimer = nil
+        
+        // Switch to playback category when paused to allow audio playback
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Failed to switch to playback category when paused: \(error)")
+        }
     }
     
     func resumeRecording() {
         guard isRecording, isPaused else { return }
         do {
+            // Switch back to record category when resuming
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            
             try engine.start()
             isPaused = false
             startTimers()
@@ -412,9 +540,106 @@ class RecordingViewModel: ObservableObject {
         isOnline.toggle()
     }
     
+    // MARK: - Audio File Validation
+    func isAudioFileReady(for session: RecordingSession) -> Bool {
+        guard !session.audioFilePath.isEmpty else { return false }
+        
+        let fileURL = URL(fileURLWithPath: session.audioFilePath)
+        
+        // Check if file exists
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return false }
+        
+        // Check if file has content (not empty)
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+            if let fileSize = attributes[.size] as? Int64, fileSize > 0 {
+                return true
+            }
+        } catch {
+            print("[Audio] Error checking file attributes: \(error)")
+        }
+        
+        return false
+    }
+    
+    // MARK: - Voice Processing
+    private func configureVoiceProcessing() {
+        guard AppSettings.shared.voiceProcessingEnabled else {
+            print("[AudioProcessing] Voice processing disabled in settings")
+            return
+        }
+        
+        do {
+            // Enable voice processing on the input node
+            // This provides noise reduction, echo cancellation, and automatic gain control
+            try engine.inputNode.setVoiceProcessingEnabled(true)
+            print("[AudioProcessing] Voice processing enabled successfully")
+            
+        } catch {
+            print("[AudioProcessing] Failed to enable voice processing: \(error.localizedDescription)")
+            // Continue without voice processing - it's not critical for recording
+        }
+    }
+    
+    // MARK: - Widget Integration
+    private func updateWidgetSessionCount() {
+        guard let context = modelContext else { return }
+        
+        let fetchDescriptor = FetchDescriptor<RecordingSession>()
+        do {
+            let sessions = try context.fetch(fetchDescriptor)
+            SharedWidgetManager.shared.updateSessionCount(sessions.count)
+        } catch {
+            print("[Widget] Failed to fetch session count: \(error)")
+        }
+    }
+    
     // MARK: - Transcription Logic
     private func startTranscription(for segment: AudioSegment) {
         transcriptionManager?.enqueue(segment: segment)
+    }
+    
+    // MARK: - Audio Conversion
+    private func convertToM4AIfNeeded(session: RecordingSession) {
+        let originalURL = URL(fileURLWithPath: session.audioFilePath)
+        guard originalURL.pathExtension.lowercased() == "caf" else { return }
+        
+        let m4aURL = originalURL.deletingPathExtension().appendingPathExtension("m4a")
+        
+        do {
+            let asset = AVAsset(url: originalURL)
+            let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A)
+            
+            guard let exportSession = exportSession else {
+                print("[Audio] Failed to create export session")
+                return
+            }
+            
+            exportSession.outputURL = m4aURL
+            exportSession.outputFileType = .m4a
+            
+            exportSession.exportAsynchronously {
+                DispatchQueue.main.async {
+                    if exportSession.status == .completed {
+                        // Update the session to use the M4A file
+                        session.audioFilePath = m4aURL.path
+                        session.format = "m4a"
+                        
+                        // Delete the original CAF file
+                        try? FileManager.default.removeItem(at: originalURL)
+                        
+                        print("[Audio] Successfully converted CAF to M4A")
+                        
+                        // Notify that audio file is ready
+                        NotificationCenter.default.post(name: .tmAudioFileReady, object: session)
+                    } else {
+                        print("[Audio] Failed to convert CAF to M4A: \(exportSession.error?.localizedDescription ?? "Unknown error")")
+                    }
+                }
+            }
+        } catch {
+            print("[Audio] Error setting up conversion: \(error)")
+        }
     }
 
 #if canImport(UIKit)
@@ -480,11 +705,13 @@ class RecordingViewModel: ObservableObject {
     // Helper to build audio file settings according to the selected quality
     private func audioFileSettings(channelCount: AVAudioChannelCount) -> [String: Any] {
         let quality = AppSettings.shared.quality
+        
+        // Use Linear PCM for reliability, but with reasonable settings
         return [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: Double(quality.sampleRate),
             AVNumberOfChannelsKey: channelCount,
-            AVLinearPCMBitDepthKey: quality.bitDepth,
+            AVLinearPCMBitDepthKey: 16, // Use 16-bit for compatibility
             AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsBigEndianKey: false
         ]

@@ -14,6 +14,10 @@ struct SettingsSheet: View {
     @AppStorage("showLevels") private var showLevels: Bool = true
     @AppStorage("simulateOffline") private var simulateOffline: Bool = false
     @AppStorage("segmentLength") private var segmentLength: Double = 30.0
+    @AppStorage("enableVoiceProcessing") private var voiceProcessingEnabled: Bool = true
+    @AppStorage("enableNoiseReduction") private var noiseReductionEnabled: Bool = true
+    @AppStorage("enableEchoCancellation") private var echoCancellationEnabled: Bool = true
+    @AppStorage("enableAutomaticGainControl") private var automaticGainControlEnabled: Bool = true
 
     @Binding var isPresented: Bool
 
@@ -53,14 +57,57 @@ struct SettingsSheet: View {
                         .foregroundColor(.secondary)
                 }
                 
+                Section(header: Text("Audio Processing")) {
+                    Toggle("Voice Processing", isOn: $voiceProcessingEnabled)
+                    if voiceProcessingEnabled {
+                        Text("Includes noise reduction, echo cancellation, and automatic gain control")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
                 Section(header: Text("Options")) {
                     Toggle("Background Recording", isOn: $enableBackgroundRecording)
                     Toggle("Show Audio Levels", isOn: $showLevels)
                     Toggle("Simulate Offline Mode", isOn: $simulateOffline)
+                    
+                    // Developer option to reset intro screen
+                    Button(action: {
+                        UserDefaults.standard.removeObject(forKey: "hasSeenIntro")
+                    }) {
+                        HStack {
+                            Image(systemName: "heart")
+                                .foregroundColor(.pink)
+                            Text("Reset Intro Screen")
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    Text("Tap to show the intro screen again on next app launch")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 
                 Section(footer: Text("These preferences are stored locally; backend configuration will follow.")) {
                     EmptyView()
+                }
+                
+                Section(header: Text("Contact")) {
+                    HStack {
+                        Image(systemName: "envelope")
+                            .foregroundColor(.blue)
+                        Text("morgandevin1029@gmail.com")
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if let url = URL(string: "mailto:morgandevin1029@gmail.com") {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                    Text("Tap to send an email")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             .navigationTitle("Settings")

@@ -47,6 +47,10 @@ struct AppSettings {
         static let activeSession = "activeRecordingSessionID"
         static let simulateOffline = "simulateOffline"
         static let segmentLength = "segmentLength"
+        static let voiceProcessing = "enableVoiceProcessing"
+        static let noiseReduction = "enableNoiseReduction"
+        static let echoCancellation = "enableEchoCancellation"
+        static let automaticGainControl = "enableAutomaticGainControl"
     }
 
     var quality: RecordingQuality {
@@ -85,5 +89,31 @@ struct AppSettings {
     var segmentLength: TimeInterval {
         get { defaults.object(forKey: Keys.segmentLength) as? TimeInterval ?? 30.0 }
         set { defaults.set(newValue, forKey: Keys.segmentLength) }
+    }
+    
+    // MARK: - Audio Processing Settings
+    
+    /// Enable voice processing for noise reduction and enhancement
+    var voiceProcessingEnabled: Bool {
+        get { defaults.object(forKey: "enableVoiceProcessing") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "enableVoiceProcessing") }
+    }
+    
+    /// Enable noise reduction (requires voice processing)
+    var noiseReductionEnabled: Bool {
+        get { defaults.object(forKey: "enableNoiseReduction") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "enableNoiseReduction") }
+    }
+    
+    /// Enable echo cancellation (requires voice processing)
+    var echoCancellationEnabled: Bool {
+        get { defaults.object(forKey: "enableEchoCancellation") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "enableEchoCancellation") }
+    }
+    
+    /// Enable automatic gain control (requires voice processing)
+    var automaticGainControlEnabled: Bool {
+        get { defaults.object(forKey: "enableAutomaticGainControl") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "enableAutomaticGainControl") }
     }
 } 

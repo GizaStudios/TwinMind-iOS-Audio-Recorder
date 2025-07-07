@@ -23,6 +23,8 @@ extension Color {
 // MARK: - Audio Playbar Component
 struct AudioPlaybar: View {
     let audioFilePath: String
+    let duration: TimeInterval
+    let recordingViewModel: RecordingViewModel?
     
     @State private var totalDuration: TimeInterval
     @State private var isPlaying = false
@@ -30,8 +32,10 @@ struct AudioPlaybar: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var timer: Timer?
     
-    init(audioFilePath: String, duration: TimeInterval) {
+    init(audioFilePath: String, duration: TimeInterval, recordingViewModel: RecordingViewModel? = nil) {
         self.audioFilePath = audioFilePath
+        self.duration = duration
+        self.recordingViewModel = recordingViewModel
         _totalDuration = State(initialValue: duration)
     }
     
@@ -103,6 +107,12 @@ struct AudioPlaybar: View {
     }
     
     private func togglePlayPause() {
+        // Prevent playback if recording is active
+        if let recordingViewModel = recordingViewModel, recordingViewModel.isRecording {
+            print("Cannot play audio while recording is active")
+            return
+        }
+        
         guard let player = audioPlayer else { return }
         
         if isPlaying {
@@ -168,12 +178,15 @@ struct HomeView: View {
     
     @State private var selectedTab: Tab = .memories
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject var recordingViewModel: RecordingViewModel
     @StateObject private var vm = HomeViewModel()
     @State private var navigateToRecord = false
     @State private var selectedSession: RecordingSession?
     @State private var showSettings = false
     @State private var showDeleteAlert = false
     @State private var sessionToDelete: RecordingSession?
+    @State private var showIntroScreen = false
+    @AppStorage("hasSeenIntro") private var hasSeenIntro = false
     
     // Group sessions by calendar day for sectioned list
     private var sessionsByDay: [(date: Date, sessions: [RecordingSession])] {
@@ -188,6 +201,9 @@ struct HomeView: View {
             // Hidden NavigationLink for programmatic navigation
             NavigationLink(destination: recordingViewDestination, isActive: $navigateToRecord) {
                 EmptyView()
+            }
+            .onChange(of: navigateToRecord) { newValue in
+                print("[Navigation] navigateToRecord changed to: \(newValue)")
             }
             header
             Divider()
@@ -208,9 +224,37 @@ struct HomeView: View {
         .sheet(isPresented: $showSettings) {
             SettingsSheet(isPresented: $showSettings)
         }
+        .sheet(isPresented: $showIntroScreen) {
+            IntroScreen(isPresented: $showIntroScreen)
+        }
+        .onChange(of: showIntroScreen) { newValue in
+            // If intro screen was dismissed (set to false), mark as seen
+            if !newValue && !hasSeenIntro {
+                print("[Intro] Intro screen dismissed, marking as seen")
+                UserDefaults.standard.set(true, forKey: "hasSeenIntro")
+                hasSeenIntro = true
+            }
+        }
         // only in-section search bar
         .onAppear {
             vm.setContext(modelContext)
+            // Check if user has seen intro screen
+            let hasSeenIntroDirect = UserDefaults.standard.bool(forKey: "hasSeenIntro")
+            print("[Intro] hasSeenIntro from @AppStorage: \(hasSeenIntro)")
+            print("[Intro] hasSeenIntro from UserDefaults: \(hasSeenIntroDirect)")
+            
+            if !hasSeenIntroDirect {
+                print("[Intro] Showing intro screen for first time")
+                showIntroScreen = true
+            } else {
+                print("[Intro] User has already seen intro, skipping")
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openRecordingPage)) { _ in
+            print("[Navigation] Received openRecordingPage notification")
+            selectedSession = nil
+            navigateToRecord = true
+            print("[Navigation] Set navigateToRecord = true, selectedSession = nil")
         }
         .alert(isPresented: $showDeleteAlert) {
             Alert(
@@ -289,16 +333,48 @@ struct HomeView: View {
     
     private var memoriesPage: some View {
         VStack(spacing: 0) {
-            // Search bar above the list
+            // Enhanced search bar with results feedback
+            VStack(spacing: 8) {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
                 TextField("Search memories", text: $vm.searchText)
                     .textFieldStyle(PlainTextFieldStyle())
+                    
+                    if !vm.searchText.isEmpty {
+                        Button(action: { vm.searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                    }
             }
             .padding(8)
             .background(Color(UIColor.secondarySystemBackground))
             .cornerRadius(10)
+                
+                // Search results feedback
+                if vm.hasSearchResults {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("\(vm.searchResultCount) result\(vm.searchResultCount == 1 ? "" : "s") found")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                } else if vm.hasNoSearchResults {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.orange)
+                        Text("No results found for \"\(vm.searchText)\"")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                }
+            }
             .padding(.horizontal)
             .padding(.top, 8)
             
@@ -310,25 +386,10 @@ struct HomeView: View {
                         .foregroundColor(.primary)
                         .textCase(nil)) {
                         ForEach(group.sessions, id: \.id) { session in
-                            Button(action: { selectedSession = session; navigateToRecord = true }) {
-                                HStack {
-                                    // left time column
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(session.createdAt.formatted(date: .omitted, time: .shortened))
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                        Text(session.title)
-                                            .font(.subheadline)
-                                            .foregroundColor(.primary)
-                                    }
-                                    Spacer()
-                                    Text(formatDuration(session.duration))
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding(.vertical, 4)
+                            SearchResultRow(session: session, searchQuery: vm.searchText) {
+                                selectedSession = session
+                                navigateToRecord = true
                             }
-                            .buttonStyle(PlainButtonStyle())
                             .onAppear { vm.loadNextPageIfNeeded(current: session) }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
@@ -361,19 +422,32 @@ struct HomeView: View {
     
     private var captureBar: some View {
         Button(action: { 
-            print("Capture button tapped!")
-            selectedSession = nil  // Clear any existing session to start new recording
-            navigateToRecord = true 
+            print("Capture button tapped! Current recording state: \(recordingViewModel.isRecording)")
+            
+            if recordingViewModel.isRecording {
+                // If recording, navigate to show current recording
+                selectedSession = nil
+                navigateToRecord = true
+            } else {
+                // If not recording, start recording and navigate
+                selectedSession = nil
+                recordingViewModel.startRecording()
+                navigateToRecord = true
+            }
         }) {
             HStack {
-                Image(systemName: "mic")
-                Text("Capture")
+                Image(systemName: recordingViewModel.isRecording ? "stop.fill" : "mic")
+                Text(recordingViewModel.isRecording ? "Recording..." : "Capture")
             }
             .foregroundColor(.white)
             .padding()
             .frame(maxWidth: .infinity)
             .background(
-                LinearGradient(colors: [Color.tmBlueDark, Color.tmBlue], startPoint: .leading, endPoint: .trailing)
+                LinearGradient(
+                    colors: recordingViewModel.isRecording ? [Color.red, Color.red.opacity(0.8)] : [Color.tmBlueDark, Color.tmBlue], 
+                    startPoint: .leading, 
+                    endPoint: .trailing
+                )
             )
             .cornerRadius(40)
             .padding(.horizontal, 16)
@@ -413,7 +487,7 @@ struct HomeView: View {
     @ViewBuilder
     private var recordingViewDestination: some View {
         if let session = selectedSession {
-            RecordingViewTemp(existingSession: session)
+            RecordingViewTemp(existingSession: session, searchQuery: vm.searchText.isEmpty ? nil : vm.searchText)
         } else {
             RecordingViewTemp()
         }
@@ -473,7 +547,7 @@ struct RecordingViewTemp: View {
     
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.modelContext) private var modelContext
-    @StateObject private var viewModel = RecordingViewModel()
+    @EnvironmentObject var viewModel: RecordingViewModel
     @State private var selectedTab: RecordingTab = .notes
     @State private var sessionTitle: String = "Untitled"
     @State private var isEditingTitle: Bool = false
@@ -485,9 +559,11 @@ struct RecordingViewTemp: View {
     
     // For viewing existing sessions
     let existingSession: RecordingSession?
+    let searchQuery: String?
     
-    init(existingSession: RecordingSession? = nil) {
+    init(existingSession: RecordingSession? = nil, searchQuery: String? = nil) {
         self.existingSession = existingSession
+        self.searchQuery = searchQuery
     }
     
     var body: some View {
@@ -652,7 +728,39 @@ struct RecordingViewTemp: View {
     
     // MARK: - Computed Properties
     private var isRecordingMode: Bool {
-        existingSession == nil && viewModel.isRecording
+        // We're in recording mode if we're actively recording and not viewing an existing session
+        return existingSession == nil && viewModel.isRecording
+    }
+    
+    private var currentSessionNotes: String? {
+        return existingSession?.notes ?? viewModel.currentSession?.notes
+    }
+    
+    private var isGeneratingSummary: Bool {
+        // Check if transcriptions are complete but notes haven't been generated yet
+        guard let session = existingSession ?? viewModel.currentSession else { return false }
+        
+        // If we already have notes, not generating
+        if let notes = session.notes, !notes.isEmpty { return false }
+        
+        // If summary generation has failed, not generating
+        if session.summaryGenerationFailed { return false }
+        
+        // If recording is in progress, not generating yet
+        if isRecordingMode { return false }
+        
+        // Check if all transcriptions are complete
+        let allSegments = session.segments
+        let completedSegments = allSegments.filter { $0.status == .completed && $0.transcription?.text.isEmpty == false }
+        let failedSegments = allSegments.filter { $0.status == .failed && $0.retryCount >= 5 }
+        let processedSegments = completedSegments.count + failedSegments.count
+        
+        // If all segments are processed and we have some transcriptions but no notes, we're generating
+        return processedSegments == allSegments.count && processedSegments > 0 && completedSegments.count > 0
+    }
+    
+    private var hasSummaryGenerationFailed: Bool {
+        return (existingSession ?? viewModel.currentSession)?.summaryGenerationFailed ?? false
     }
     
     private var dateLocationString: String {
@@ -669,13 +777,26 @@ struct RecordingViewTemp: View {
     }
     
     private func setupView() {
+        print("[RecordingViewTemp] setupView called, existingSession: \(existingSession?.title ?? "nil"), viewModel.isRecording: \(viewModel.isRecording)")
+        
         if let session = existingSession {
             // Viewing existing session
             sessionTitle = session.title
             selectedTab = .transcript
         } else {
-            // New recording
-            viewModel.startRecording()
+            // New recording view
+            if viewModel.isRecording {
+                print("[RecordingViewTemp] Recording already in progress, using current session")
+                // If recording is already in progress, use the current session
+                if let currentSession = viewModel.currentSession {
+                    sessionTitle = currentSession.title
+                } else {
+                    sessionTitle = "Untitled"
+                }
+            } else {
+                print("[RecordingViewTemp] No recording in progress, will show empty state")
+                sessionTitle = "Untitled"
+            }
             selectedTab = .transcript
         }
     }
@@ -689,7 +810,7 @@ struct RecordingViewTemp: View {
                     .font(.system(.body, design: .monospaced))
             } else {
                 Circle().fill(Color.secondary).frame(width: 12, height: 12)
-                Text(formatTimerDuration(existingSession?.duration ?? 0))
+                Text(formatTimerDuration(existingSession?.duration ?? viewModel.currentSession?.duration ?? 0))
                     .font(.system(.body, design: .monospaced))
             }
         }
@@ -724,8 +845,8 @@ struct RecordingViewTemp: View {
             VStack(spacing: 12) {
                 // Add audio playbar for completed sessions or newly finished recordings
                 if let session = existingSession ?? (!viewModel.isRecording ? viewModel.currentSession : nil),
-                   !session.audioFilePath.isEmpty {
-                    AudioPlaybar(audioFilePath: session.audioFilePath, duration: session.duration)
+                   viewModel.isAudioFileReady(for: session) {
+                    AudioPlaybar(audioFilePath: session.audioFilePath, duration: session.duration, recordingViewModel: viewModel)
                         .padding(.vertical, 16)
                 }
                 
@@ -753,9 +874,15 @@ struct RecordingViewTemp: View {
                     .padding(.top, 100)
                 } else {
                     ForEach(transcriptLines, id: \.self) { line in
+                        if let searchQuery = searchQuery, !searchQuery.isEmpty {
+                            HighlightedText(text: line, searchQuery: searchQuery)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 2)
+                        } else {
                         Text(line)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 2)
+                        }
                     }
                     if transcriptLines.isEmpty && isRecordingMode {
                         Text("Transcribing…")
@@ -797,59 +924,110 @@ struct RecordingViewTemp: View {
     private var notesSection: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                // Summary Section
+                // AI-Generated Notes Section
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("Summary")
+                        Text("AI Summary")
                             .font(.headline)
                             .fontWeight(.semibold)
                         Spacer()
-                        Button(action: {}) {
+                        Button(action: {
+                            retrySummaryGeneration()
+                        }) {
                             Image(systemName: "arrow.clockwise")
                                 .foregroundColor(.blue)
                         }
+                        .disabled(isGeneratingSummary || isRecordingMode)
                     }
                     
-                    Text(mockSummary)
-                        .foregroundColor(.secondary)
-                        .font(.subheadline)
+                    Group {
+                        if isGeneratingSummary {
+                            HStack {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("Generating summary...")
+                                    .foregroundColor(.secondary)
+                                    .font(.subheadline)
+                            }
+                        } else if hasSummaryGenerationFailed {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: "exclamationmark.triangle")
+                                        .foregroundColor(.orange)
+                                    Text("Failed to generate summary")
+                                        .foregroundColor(.orange)
+                                        .font(.subheadline)
+                                }
+                                
+                                Button(action: {
+                                    retrySummaryGeneration()
+                                }) {
+                                    HStack {
+                                        Image(systemName: "arrow.clockwise")
+                                        Text("Try Again")
+                                    }
+                                    .foregroundColor(.blue)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(6)
+                                }
+                            }
+                        } else if let notes = currentSessionNotes, !notes.isEmpty {
+                            Text(notes)
+                                .foregroundColor(.primary)
+                                .font(.subheadline)
+                        } else if isRecordingMode {
+                            Text("Summary will be generated when recording is complete")
+                                .foregroundColor(.secondary)
+                                .font(.subheadline)
+                                .italic()
+                        } else {
+                            Text("No summary available")
+                                .foregroundColor(.secondary)
+                                .font(.subheadline)
+                                .italic()
+                        }
+                    }
                 }
                 
                 Divider()
                 
-                // Action Items Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Action Items")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                    
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "square")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                        Text(mockActionItem)
-                            .foregroundColor(.secondary)
-                            .font(.subheadline)
-                        Spacer()
-                    }
-                }
-                
-                Divider()
-                
-                // Your Notes Section
+                // Manual Notes Section
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Your Notes")
                         .font(.headline)
                         .fontWeight(.semibold)
                     
-                    Text("Click 'Edit Notes' to add your own notes or provide instructions to regenerate summary (e.g. correct spellings to fix transcription errors)")
+                    Text("Add your own notes or provide feedback to improve AI summaries")
                         .foregroundColor(.secondary)
                         .font(.subheadline)
                         .italic()
+                    
+                    Button(action: {
+                        // TODO: Add manual notes editing
+                    }) {
+                        HStack {
+                            Image(systemName: "pencil")
+                            Text("Add Notes")
+                        }
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(8)
+                    }
                 }
             }
             .padding(.horizontal)
             .padding(.top, 16)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .tmSessionUpdated)) { notification in
+            // Refresh notes when session is updated
+            if let updatedSession = notification.object as? RecordingSession,
+               updatedSession.id == (existingSession?.id ?? viewModel.currentSession?.id) {
+                print("[Notes] Session updated, refreshing notes display")
+            }
         }
     }
     
@@ -976,20 +1154,7 @@ struct RecordingViewTemp: View {
         }
     }
     
-    // MARK: - Mock Data
-    private var mockSummary: String {
-        if let session = existingSession {
-            return session.duration < 60 ? "Transcript too short to generate a summary" : "Brief discussion about project timeline and next steps."
-        }
-        return "Recording in progress..."
-    }
-    
-    private var mockActionItem: String {
-        if let session = existingSession {
-            return session.title.contains("Greeting") ? "No action items identified from brief greeting" : "Follow up on discussed action items"
-        }
-        return "Recording in progress..."
-    }
+
     
     // Computed transcript lines from available transcriptions
     private var transcriptLines: [String] {
@@ -1027,6 +1192,22 @@ struct RecordingViewTemp: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
         return formatter.string(from: Date())
+    }
+    
+    // MARK: Summary Generation
+    private func retrySummaryGeneration() {
+        guard let session = existingSession ?? viewModel.currentSession else { return }
+        
+        print("[Notes] Retrying summary generation for session: \(session.title)")
+        
+        // Clear the failed state to trigger regeneration
+        session.summaryGenerationFailed = false
+        try? modelContext.save()
+        
+        // Trigger summary generation with force retry
+        Task {
+            await SessionSummaryService.shared.generateSummary(for: session, modelContext: modelContext, forceRetry: true)
+        }
     }
     
     // Check if we should show "No transcript available" message
@@ -1137,6 +1318,247 @@ private struct QuestionCard: View {
             .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Search Result Row Component
+struct SearchResultRow: View {
+    let session: RecordingSession
+    let searchQuery: String
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Main session info
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(session.createdAt.formatted(date: .omitted, time: .shortened))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        // Highlighted title if it matches search
+                        if !searchQuery.isEmpty && SearchHelper.textContainsQuery(session.title, query: searchQuery) {
+                            HighlightedText(text: session.title, searchQuery: searchQuery)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                        } else {
+                            Text(session.title)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    Text(formatDuration(session.duration))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                // Show search snippets if there are matching transcriptions
+                if !searchQuery.isEmpty {
+                    let matchingSegments = session.segments.filter { segment in
+                        guard let transcription = segment.transcription else { return false }
+                        return SearchHelper.textContainsQuery(transcription.text, query: searchQuery)
+                    }
+                    
+                    if !matchingSegments.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(matchingSegments.prefix(2), id: \.id) { segment in
+                                if let transcription = segment.transcription {
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Text(formatTime(segment.startTime))
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                            .frame(width: 35, alignment: .leading)
+                                        
+                                        HighlightedText(
+                                            text: SearchHelper.extractSearchSnippet(from: transcription.text, searchQuery: searchQuery),
+                                            searchQuery: searchQuery
+                                        )
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                    }
+                                }
+                            }
+                            
+                            if matchingSegments.count > 2 {
+                                Text("... and \(matchingSegments.count - 2) more matches")
+                                    .font(.caption2)
+                                    .foregroundColor(.blue)
+                                    .padding(.leading, 43)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = Int(duration.rounded())
+        if totalSeconds < 60 {
+            return "\(totalSeconds)s"
+        } else if totalSeconds < 3600 {
+            let minutes = totalSeconds / 60
+            return "\(minutes)m"
+        } else {
+            let hours = totalSeconds / 3600
+            let minutes = (totalSeconds % 3600) / 60
+            return minutes == 0 ? "\(hours)h" : "\(hours)h \(minutes)m"
+        }
+    }
+    
+    private func formatTime(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Highlighted Text Component
+struct HighlightedText: View {
+    let text: String
+    let searchQuery: String
+    
+    var body: some View {
+        if searchQuery.isEmpty {
+            Text(text)
+        } else {
+            let attributedString = createAttributedString(from: text, highlighting: searchQuery)
+            Text(attributedString)
+        }
+    }
+    
+    private func createAttributedString(from text: String, highlighting searchQuery: String) -> AttributedString {
+        var attributedString = AttributedString(text)
+        let searchRanges = SearchHelper.findSearchRanges(in: text, searchQuery: searchQuery)
+        
+        for range in searchRanges {
+            if let attributedRange = Range<AttributedString.Index>(range, in: attributedString) {
+                attributedString[attributedRange].font = .boldSystemFont(ofSize: UIFont.systemFontSize)
+                attributedString[attributedRange].backgroundColor = .yellow.withAlphaComponent(0.3)
+            }
+        }
+        
+        return attributedString
+    }
+}
+
+// MARK: - Intro Screen
+struct IntroScreen: View {
+    @Binding var isPresented: Bool
+    @AppStorage("hasSeenIntro") private var hasSeenIntro = false
+    
+    var body: some View {
+        VStack(spacing: 32) {
+            Spacer()
+            
+            // Hearts animation area
+            ZStack {
+                // Background hearts
+                ForEach(0..<8, id: \.self) { index in
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 20 + CGFloat(index * 3)))
+                        .foregroundColor(.pink.opacity(0.3))
+                        .offset(
+                            x: CGFloat.random(in: -100...100),
+                            y: CGFloat.random(in: -50...50)
+                        )
+                        .animation(
+                            Animation.easeInOut(duration: 2.0)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(index) * 0.3),
+                            value: index
+                        )
+                }
+                
+                // Main heart
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.pink)
+                    .scaleEffect(1.0)
+                    .animation(
+                        Animation.easeInOut(duration: 1.5)
+                            .repeatForever(autoreverses: true),
+                        value: UUID()
+                    )
+            }
+            .frame(height: 200)
+            
+            // Thank you message
+            VStack(spacing: 16) {
+                Text("Thank you for taking the time to review this TwinMind audio-recording demo. Your consideration means a lot! I appreciate the opportunity.")
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .lineSpacing(4)
+                
+                // Smile emoji
+                Text("😊")
+                    .font(.system(size: 48))
+                    .scaleEffect(1.0)
+                    .animation(
+                        Animation.easeInOut(duration: 2.0)
+                            .repeatForever(autoreverses: true),
+                        value: UUID()
+                    )
+            }
+            
+            Spacer()
+            
+            // Get Started button
+            Button(action: {
+                print("[Intro] Get Started tapped, setting hasSeenIntro = true")
+                hasSeenIntro = true
+                print("[Intro] hasSeenIntro after setting: \(hasSeenIntro)")
+                isPresented = false
+            }) {
+                HStack(spacing: 8) {
+                    Text("Get Started")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    Image(systemName: "arrow.right")
+                        .font(.headline)
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 16)
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [Color.tmBlue, Color.tmBlueDark]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .cornerRadius(25)
+                .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+            }
+            .padding(.bottom, 50)
+        }
+        .background(
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color.white,
+                    Color.pink.opacity(0.05),
+                    Color.white
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            print("[Intro] IntroScreen appeared, hasSeenIntro: \(hasSeenIntro)")
+        }
     }
 }
 

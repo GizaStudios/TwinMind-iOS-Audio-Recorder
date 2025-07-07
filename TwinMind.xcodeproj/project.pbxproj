@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		03AE74EA2E1B41110037287E /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 03AE74852E1B38B70037287E /* WidgetKit.framework */; };
+		03AE74EB2E1B41110037287E /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 03AE74872E1B38B70037287E /* SwiftUI.framework */; };
+		03AE74FA2E1B41150037287E /* TwinMindWidgetExtensionExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 03AE74E92E1B41100037287E /* TwinMindWidgetExtensionExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		039648182E14DE0000DC509B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -21,12 +27,37 @@
 			remoteGlobalIDString = 039648072E14DDFD00DC509B;
 			remoteInfo = TwinMind;
 		};
+		03AE74F82E1B41150037287E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 039648002E14DDFD00DC509B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 03AE74E82E1B41100037287E;
+			remoteInfo = TwinMindWidgetExtensionExtension;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		03AE749C2E1B38BD0037287E /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				03AE74FA2E1B41150037287E /* TwinMindWidgetExtensionExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		039648082E14DDFD00DC509B /* TwinMind.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TwinMind.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		039648172E14DE0000DC509B /* TwinMindTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TwinMindTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		039648212E14DE0000DC509B /* TwinMindUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TwinMindUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		03AE74852E1B38B70037287E /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		03AE74872E1B38B70037287E /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		03AE74E92E1B41100037287E /* TwinMindWidgetExtensionExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TwinMindWidgetExtensionExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		03AE75012E1B41320037287E /* TwinMindWidgetExtensionExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TwinMindWidgetExtensionExtension.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -36,6 +67,13 @@
 				Info.plist,
 			);
 			target = 039648072E14DDFD00DC509B /* TwinMind */;
+		};
+		03AE75092E1B42D90037287E /* Exceptions for "TwinMindWidgetExtension" folder in "TwinMindWidgetExtensionExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 03AE74E82E1B41100037287E /* TwinMindWidgetExtensionExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -56,6 +94,14 @@
 		039648242E14DE0000DC509B /* TwinMindUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = TwinMindUITests;
+			sourceTree = "<group>";
+		};
+		03AE74CE2E1B3EC90037287E /* TwinMindWidgetExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				03AE75092E1B42D90037287E /* Exceptions for "TwinMindWidgetExtension" folder in "TwinMindWidgetExtensionExtension" target */,
+			);
+			path = TwinMindWidgetExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -82,15 +128,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		03AE74E62E1B41100037287E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				03AE74EB2E1B41110037287E /* SwiftUI.framework in Frameworks */,
+				03AE74EA2E1B41110037287E /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		039647FF2E14DDFD00DC509B = {
 			isa = PBXGroup;
 			children = (
+				03AE75012E1B41320037287E /* TwinMindWidgetExtensionExtension.entitlements */,
 				0396480A2E14DDFD00DC509B /* TwinMind */,
 				0396481A2E14DE0000DC509B /* TwinMindTests */,
 				039648242E14DE0000DC509B /* TwinMindUITests */,
+				03AE74CE2E1B3EC90037287E /* TwinMindWidgetExtension */,
+				03AE74842E1B38B70037287E /* Frameworks */,
 				039648092E14DDFD00DC509B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,8 +159,18 @@
 				039648082E14DDFD00DC509B /* TwinMind.app */,
 				039648172E14DE0000DC509B /* TwinMindTests.xctest */,
 				039648212E14DE0000DC509B /* TwinMindUITests.xctest */,
+				03AE74E92E1B41100037287E /* TwinMindWidgetExtensionExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		03AE74842E1B38B70037287E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				03AE74852E1B38B70037287E /* WidgetKit.framework */,
+				03AE74872E1B38B70037287E /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -115,10 +183,12 @@
 				039648042E14DDFD00DC509B /* Sources */,
 				039648052E14DDFD00DC509B /* Frameworks */,
 				039648062E14DDFD00DC509B /* Resources */,
+				03AE749C2E1B38BD0037287E /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				03AE74F92E1B41150037287E /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0396480A2E14DDFD00DC509B /* TwinMind */,
@@ -176,6 +246,28 @@
 			productReference = 039648212E14DE0000DC509B /* TwinMindUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		03AE74E82E1B41100037287E /* TwinMindWidgetExtensionExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 03AE74FB2E1B41150037287E /* Build configuration list for PBXNativeTarget "TwinMindWidgetExtensionExtension" */;
+			buildPhases = (
+				03AE74E52E1B41100037287E /* Sources */,
+				03AE74E62E1B41100037287E /* Frameworks */,
+				03AE74E72E1B41100037287E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				03AE74CE2E1B3EC90037287E /* TwinMindWidgetExtension */,
+			);
+			name = TwinMindWidgetExtensionExtension;
+			packageProductDependencies = (
+			);
+			productName = TwinMindWidgetExtensionExtension;
+			productReference = 03AE74E92E1B41100037287E /* TwinMindWidgetExtensionExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -197,6 +289,9 @@
 						CreatedOnToolsVersion = 16.4;
 						TestTargetID = 039648072E14DDFD00DC509B;
 					};
+					03AE74E82E1B41100037287E = {
+						CreatedOnToolsVersion = 16.4;
+					};
 				};
 			};
 			buildConfigurationList = 039648032E14DDFD00DC509B /* Build configuration list for PBXProject "TwinMind" */;
@@ -216,6 +311,7 @@
 				039648072E14DDFD00DC509B /* TwinMind */,
 				039648162E14DE0000DC509B /* TwinMindTests */,
 				039648202E14DE0000DC509B /* TwinMindUITests */,
+				03AE74E82E1B41100037287E /* TwinMindWidgetExtensionExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -236,6 +332,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		0396481F2E14DE0000DC509B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		03AE74E72E1B41100037287E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -266,6 +369,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		03AE74E52E1B41100037287E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -278,6 +388,11 @@
 			isa = PBXTargetDependency;
 			target = 039648072E14DDFD00DC509B /* TwinMind */;
 			targetProxy = 039648222E14DE0000DC509B /* PBXContainerItemProxy */;
+		};
+		03AE74F92E1B41150037287E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 03AE74E82E1B41100037287E /* TwinMindWidgetExtensionExtension */;
+			targetProxy = 03AE74F82E1B41150037287E /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -408,6 +523,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TwinMind/TwinMind.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8M2R6Y78JV;
@@ -439,6 +555,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TwinMind/TwinMind.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8M2R6Y78JV;
@@ -537,6 +654,62 @@
 			};
 			name = Release;
 		};
+		03AE74FC2E1B41150037287E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = TwinMindWidgetExtensionExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8M2R6Y78JV;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TwinMindWidgetExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TwinMindWidgetExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gizastudios.TwinMind.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		03AE74FD2E1B41150037287E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = TwinMindWidgetExtensionExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8M2R6Y78JV;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TwinMindWidgetExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TwinMindWidgetExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gizastudios.TwinMind.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -572,6 +745,15 @@
 			buildConfigurations = (
 				039648322E14DE0000DC509B /* Debug */,
 				039648332E14DE0000DC509B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		03AE74FB2E1B41150037287E /* Build configuration list for PBXNativeTarget "TwinMindWidgetExtensionExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				03AE74FC2E1B41150037287E /* Debug */,
+				03AE74FD2E1B41150037287E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

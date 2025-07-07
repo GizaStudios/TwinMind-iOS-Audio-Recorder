@@ -18,5 +18,16 @@
 	<string>Bluetooth audio accessories can be used for recording and playback.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>TwinMind may connect to local devices (e.g., AirPods) during recording.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.twinmind.widget</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>twinmind</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

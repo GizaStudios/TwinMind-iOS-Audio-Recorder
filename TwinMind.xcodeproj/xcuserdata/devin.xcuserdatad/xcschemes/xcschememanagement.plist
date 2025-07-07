@@ -9,6 +9,36 @@
 			<key>orderHint</key>
 			<integer>0</integer>
 		</dict>
+		<key>TwinMindWidgetExtensionExtension.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
+	</dict>
+	<key>SuppressBuildableAutocreation</key>
+	<dict>
+		<key>039648072E14DDFD00DC509B</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>039648162E14DE0000DC509B</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>039648202E14DE0000DC509B</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>03AE74E82E1B41100037287E</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
 	</dict>
 </dict>
 </plist>

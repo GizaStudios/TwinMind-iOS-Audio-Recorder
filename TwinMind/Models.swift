@@ -49,6 +49,12 @@ class RecordingSession {
     var sampleRate: Double
     var bitDepth: Int
     var format: String // e.g. "m4a", "wav"
+    
+    // Generated session summary/notes from AI processing
+    var notes: String?
+    
+    // Track summary generation state
+    var summaryGenerationFailed: Bool = false
 
     // Relationship → constituent 30‑s segments
     var segments: [AudioSegment] = []
@@ -59,7 +65,9 @@ class RecordingSession {
          audioFilePath: String,
          sampleRate: Double,
          bitDepth: Int,
-         format: String) {
+         format: String,
+         notes: String? = nil,
+         summaryGenerationFailed: Bool = false) {
         self.id = UUID()
         self.title = title
         self.createdAt = createdAt
@@ -68,6 +76,8 @@ class RecordingSession {
         self.sampleRate = sampleRate
         self.bitDepth = bitDepth
         self.format = format
+        self.notes = notes
+        self.summaryGenerationFailed = summaryGenerationFailed
     }
 }
 

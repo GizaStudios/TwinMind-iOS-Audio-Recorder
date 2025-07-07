@@ -59,6 +59,24 @@ final class HomeViewModel: ObservableObject {
         loadPage()
     }
     
+    // MARK: - Search Helper Properties
+    
+    /// Returns the number of search results found
+    var searchResultCount: Int {
+        guard !searchText.isEmpty else { return 0 }
+        return sessions.count
+    }
+    
+    /// Returns true if there are search results
+    var hasSearchResults: Bool {
+        !searchText.isEmpty && !sessions.isEmpty
+    }
+    
+    /// Returns true if search is active but no results found
+    var hasNoSearchResults: Bool {
+        !searchText.isEmpty && sessions.isEmpty
+    }
+    
     private func loadPage() {
         guard let context = context else { return }
         guard canLoadMore else { return }
@@ -67,13 +85,8 @@ final class HomeViewModel: ObservableObject {
             
             // When searching, fetch all results without pagination for proper search functionality
             if !searchText.isEmpty {
-                desc.predicate = #Predicate<RecordingSession> { session in
-                    session.title.contains(searchText) ||
-                    session.segments.contains { seg in
-                        seg.transcription?.text.contains(searchText) == true
-                    }
-                }
-                // No pagination for search - get all results
+                // For search, we need to fetch all sessions and then filter them
+                // because SwiftData predicates don't support case-insensitive search well
                 desc.fetchLimit = 0 // 0 means no limit
                 desc.fetchOffset = 0
             } else {
@@ -86,14 +99,17 @@ final class HomeViewModel: ObservableObject {
             
             let page = try context.fetch(desc)
             
-            // Apply case-insensitive filter if needed (only for search results)
+            // Apply search filter with case-insensitive matching
             var filtered: [RecordingSession]
             if !searchText.isEmpty {
-                let q = searchText.lowercased()
+                let searchQuery = searchText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
                 filtered = page.filter { session in
-                    session.title.lowercased().contains(q) ||
-                    session.segments.contains { seg in
-                        seg.transcription?.text.lowercased().contains(q) == true
+                    // Search in session title
+                    session.title.lowercased().contains(searchQuery) ||
+                    // Search in transcription text of any segment
+                    session.segments.contains { segment in
+                        guard let transcription = segment.transcription else { return false }
+                        return transcription.text.lowercased().contains(searchQuery)
                     }
                 }
             } else {
